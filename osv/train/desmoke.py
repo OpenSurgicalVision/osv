@@ -19,9 +19,10 @@ run recorded in MLflow (fatal on CUDA when the tracker is unreachable).
 Loss: L1 on the restored frame + 0.2 * (1 - SSIM) + 0.1 * L1 on the predicted
 smoke alpha. Every evaluation reports the model next to the no-op baseline (the
 smoky input itself), overall and per smoke-density stratum, each with a 95 %
-interval over frames. `--eval-split test` also scores the real smoky test frames
-by the drop in their haze score - an indicator with no ground truth, and a touch
-of the held-out split that belongs in the R-25 counter.
+interval over frames. `--eval-split test` also scores the real test frames labelled
+as smoke by the drop in their haze score - an indicator with no ground truth, and a
+touch of the held-out split that belongs in the R-25 counter. None are labelled yet
+(`osv.datasets.desmoke.confirmed_smoke`), so for now it is skipped.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ from torch.utils.data import DataLoader
 
 from osv.arch.registry import REGISTRY, lookup
 from osv.datasets.cholect50 import haze_score
-from osv.datasets.desmoke import DEFAULT_PROCESSED_DIR, SyntheticSmokePairs
+from osv.datasets.desmoke import DEFAULT_PROCESSED_DIR, SyntheticSmokePairs, confirmed_smoke
 from osv.eval import restoration as R
 from osv.models.desmoke import TASK, build_desmoke_model
 from osv.train.segmentation import RunRecorder, pin_seed, preflight_quota
@@ -146,17 +147,20 @@ def evaluate(
 @torch.no_grad()
 def evaluate_real_smoke(
     model: nn.Module, processed_dir: Path, split: str, device: str
-) -> dict[str, Any]:
-    """Haze score before and after on real smoky frames: no ground truth, an indicator only."""
+) -> dict[str, Any] | None:
+    """Haze score before and after on labelled real smoky frames: an indicator only.
+
+    None when no frame of the split is labelled as smoke (`confirmed_smoke`).
+    """
     model.eval()
     index = json.loads((processed_dir / "index.json").read_text())
+    frame_ids = confirmed_smoke(index, split)
+    if not frame_ids:
+        print(f"[osv.train] no {split} frame labelled as real smoke: haze drop skipped.")
+        return None
     before, after = [], []
-    for record in index["real_smoke"]:
-        if record["split"] != split:
-            continue
-        with Image.open(
-            processed_dir / "real_smoke" / split / f"{record['frame_id']}.png"
-        ) as image:
+    for frame_id in frame_ids:
+        with Image.open(processed_dir / "real_smoke" / split / f"{frame_id}.png") as image:
             rgb = np.asarray(image.convert("RGB"))
         tensor = torch.from_numpy(rgb.astype(np.float32) / 255).permute(2, 0, 1)[None].to(device)
         restored = model(tensor)["clean"][0].permute(1, 2, 0).cpu().numpy()
@@ -341,6 +345,7 @@ def train(
         real = None
         if config.eval_split == "test":
             real = evaluate_real_smoke(model, processed, "test", device)
+        if real is not None:
             recorder.log_metrics(
                 {f"real_{k}": v["mean"] for k, v in real.items()}, step=config.epochs
             )

@@ -96,11 +96,26 @@ class SyntheticSmokePairs(Dataset):
         }
 
 
+def confirmed_smoke(index: dict[str, Any], split: str) -> list[str]:
+    """Real-smoke frames of a split that a person has labelled as smoke.
+
+    The build keeps the hazy-est rejected frames as `real_smoke`, but the haze score is
+    not a smoke detector: the owner's review of the first build (2026-10-19) found glare
+    and pale tissue near the threshold and the trocar port among the hazy-est frames. A
+    frame counts as real smoke only once its record carries `"smoke": true`; until then
+    CycleGAN refuses to train and the real-smoke haze drop is skipped.
+    """
+    return [
+        r["frame_id"] for r in index["real_smoke"] if r["split"] == split and r.get("smoke") is True
+    ]
+
+
 class UnpairedSmoke(Dataset):
     """Real smoky and clean frames of one split, drawn independently (CycleGAN).
 
-    The smoky domain is the build's `real_smoke` frames, the clean domain its clean
-    frames, both from the same videos of the same split. An epoch walks the larger
+    The smoky domain is the build's `real_smoke` frames labelled as smoke
+    (`confirmed_smoke`), the clean domain its clean frames, both from the same videos
+    of the same split. An epoch walks the larger
     domain; the partner from the other domain is drawn from (seed, epoch, index).
     """
 
@@ -116,11 +131,11 @@ class UnpairedSmoke(Dataset):
         index: dict[str, Any] = json.loads((self.root / "index.json").read_text())
         self.split, self.seed, self.epoch = split, int(seed), 0
         self.clean = [r["frame_id"] for r in index["clean"] if r["split"] == split]
-        self.smoky = [r["frame_id"] for r in index["real_smoke"] if r["split"] == split]
+        self.smoky = confirmed_smoke(index, split)
         if not self.clean or not self.smoky:
             raise ValueError(
-                f"split {split!r} needs clean and real smoky frames; "
-                "set real_smoke for it in the smoke_m5 build config"
+                f"split {split!r} needs clean frames and real smoky frames labelled "
+                '"smoke": true; none are labelled yet (docs/data-cards/smoke-m5.md, section 5)'
             )
         self.length = max(len(self.clean), len(self.smoky))
         if limit is not None:
@@ -151,4 +166,4 @@ class UnpairedSmoke(Dataset):
         }
 
 
-__all__ = ["DEFAULT_PROCESSED_DIR", "SyntheticSmokePairs", "UnpairedSmoke"]
+__all__ = ["DEFAULT_PROCESSED_DIR", "SyntheticSmokePairs", "UnpairedSmoke", "confirmed_smoke"]

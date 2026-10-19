@@ -11,7 +11,7 @@ Started from `osv.train.desmoke`, which looks the architecture up in
 supervised baseline's: R-24 quota gate, `config_hash` resume refusal, pinned
 seeds, MLflow, and the same evaluation - the smoky-to-clean generator scored on
 the fixed synthetic pairs next to the no-op baseline, plus the real-smoke haze
-drop on `--eval-split test`.
+drop on `--eval-split test` once real frames are labelled as smoke.
 
 * Pix2Pix and SRGAN train on the synthetic pairs (new smoke every epoch).
   Pix2Pix: conditional PatchGAN, vanilla GAN loss + 100 * L1. SRGAN: VGG19
@@ -19,7 +19,9 @@ drop on `--eval-split test`.
   file (`--vgg-weights`), never a download (R-07).
 * CycleGAN trains on unpaired real smoky and clean train frames - the only one
   of the three that sees real smoke in training. LSGAN, cycle 10, identity 5,
-  a 50-image history per discriminator.
+  a 50-image history per discriminator. Its smoky domain is the real frames a
+  person labelled as smoke (`osv.datasets.desmoke.confirmed_smoke`); until there
+  are some it refuses to start.
 
 All three use Adam (2e-4, betas 0.5 / 0.999), constant for the first half of the
 epochs and linearly decayed to zero over the second, as pix2pix and CycleGAN do.
@@ -395,6 +397,7 @@ def train(
         real = None
         if config.eval_split == "test":
             real = evaluate_real_smoke(nets["generator"], processed, "test", device)
+        if real is not None:
             recorder.log_metrics(
                 {f"real_{k}": v["mean"] for k, v in real.items()}, step=config.epochs
             )
