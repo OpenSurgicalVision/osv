@@ -1,5 +1,8 @@
-# PROPOSED manifest (R-23). Becomes usable only when a human owner sets `status: APPROVED`
-# in review; osv/datasets/cholect50.py refuses to read frames before that.
+# APPROVED by the project owner (R0) on 2026-10-19 in the working session and relayed by the
+# agent that drafted it (not entered first-hand by the owner); the owner's PR approval is the
+# record. Approval covers the source, licence and official split below.
+#
+# osv/datasets/cholect50.py refuses to read frames unless `status: APPROVED`.
 #
 # CholecT50 has no public download URL: CAMMA releases it per request with a one-time
 # password, which is never recorded here or anywhere in git. The archive is fetched by the
@@ -8,7 +11,7 @@
 # release or a corrupted copy fails loudly instead of silently changing the benchmark.
 
 name: cholect50
-status: PROPOSED
+status: APPROVED
 
 source:
   type: manual_request

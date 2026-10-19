@@ -2,11 +2,11 @@
 
 **RESEARCH USE ONLY — NOT FOR CLINICAL USE**
 
-Status: **PROPOSED**. Code and manifests are in review; nothing has been built.
-`osv/datasets/manifests/{cholect50,blender_smoke,smoke_m5}.yaml` must be set to
-`APPROVED` by the project owner, and `smoke_m5.yaml: clean.haze_max` must be set
-from `python -m osv.datasets.smoke_m5 calibrate`, before `dvc repro smoke_m5_build`
-will run.
+Status: **in review; nothing built yet.** `cholect50.yaml` and `blender_smoke.yaml`
+were approved by the project owner on 2026-10-19. The build config `smoke_m5.yaml`
+stays PROPOSED until `clean.haze_max` is set from
+`python -m osv.datasets.smoke_m5 calibrate`; `dvc repro smoke_m5_build` refuses to run
+before that.
 
 ## 1. Dataset Origin & Original Authors
 
@@ -30,8 +30,8 @@ will run.
 - Clean frames and every composited pair: **CC BY-NC-SA 4.0** (CholecT50). Non-commercial
   use only, accepted for OSV by `docs/adr/0002-accepting-noncommercial-datasets.md`;
   share-alike; attribution to the papers above.
-- Smoke renders on their own: licence **to be decided by the owner** (proposal: CC BY 4.0).
-  They contain no patient data.
+- Smoke renders on their own: **CC BY 4.0** (owner's decision, 2026-10-19). They contain no
+  patient data.
 
 ## 3. Modality & Clinical Scope
 

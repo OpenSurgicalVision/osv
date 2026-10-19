@@ -136,13 +136,21 @@ def test_official_split_places_all_50_videos_once():
     ]
 
 
-def test_proposed_manifests_refuse_to_read_frames():
-    with pytest.raises(C.ManifestNotApproved):
-        C.load_manifest()
-    with pytest.raises(RuntimeError, match="approve"):
-        B.load_manifest()
+def test_only_approved_manifests_let_frames_be_read(tmp_path):
+    assert C.load_manifest()["status"] == "APPROVED"
+    assert B.load_manifest()["license"]["name"] == "CC BY 4.0"
+    for path, loader in ((C.MANIFEST_PATH, C.load_manifest), (B.MANIFEST_PATH, B.load_manifest)):
+        proposed = tmp_path / path.name
+        proposed.write_text(path.read_text().replace("status: APPROVED", "status: PROPOSED"))
+        with pytest.raises(RuntimeError, match="approve"):
+            loader(proposed)
+    # The build config waits for the calibrated haze threshold.
     with pytest.raises(RuntimeError, match="approve"):
         M.load_config()
+    approved = tmp_path / "smoke_m5.yaml"
+    approved.write_text(M.CONFIG_PATH.read_text().replace("status: PROPOSED", "status: APPROVED"))
+    with pytest.raises(RuntimeError, match="haze_max is unset"):
+        M.load_config(approved)
 
 
 def write_cholect(root: Path, videos: dict[str, int]) -> None:
