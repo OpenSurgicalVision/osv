@@ -18,9 +18,10 @@ clean:
       threshold sits a little below the top of decile 7: about 77 % of strided
       frames stay clean. Deciles 8-9 were not judged; anything above 0.28 is rejected.
 
-real_smoke:
-  split: test           # real smoky frames for qualitative / no-reference evaluation
-  count: 200            # the hazy-est strided frames of that split (black frames excluded)
+real_smoke:             # rejected (haze > haze_max) real frames kept per split, hazy-est first
+  train: null           # all: the unpaired smoky domain for CycleGAN
+  val: 200              # qualitative / no-reference checks during development
+  test: 200             # haze-drop indicator on the held-out split (R-25 counter)
 
 eval_pairs:
   splits: [val, test]   # fixed pairs, regenerated bit-for-bit; train pairs are made on the fly

@@ -230,7 +230,7 @@ CONFIG = {
     "status": "APPROVED",
     "size": list(SIZE),
     "clean": {"stride": 1, "haze_max": 0.25},
-    "real_smoke": {"split": "test", "count": 5},
+    "real_smoke": {"train": None, "test": 5},
     "eval_pairs": {"splits": ["val", "test"], "per_clean_frame": 1, "seed": 11},
 }
 SPLIT_OF = {"VID01": "train", "VID08": "val", "VID06": "test"}
@@ -255,14 +255,17 @@ def run_build(tmp_path: Path, name: str) -> dict:
 
 def test_build_keeps_clean_frames_and_never_mixes_splits(tmp_path):
     index = run_build(tmp_path, "out")
-    # Frame 2 of every video is hazy: rejected, and the test split's becomes a real-smoke frame.
+    # Frame 2 of every video is hazy: rejected; train and test keep theirs as real smoke.
     assert index["counts"]["clean"] == {"train": 3, "val": 2, "test": 2}
     assert {r["frame_id"] for r in index["rejected"]} == {
         "VID01_000002",
         "VID08_000002",
         "VID06_000002",
     }
-    assert [r["frame_id"] for r in index["real_smoke"]] == ["VID06_000002"]
+    assert [(r["frame_id"], r["split"]) for r in index["real_smoke"]] == [
+        ("VID01_000002", "train"),
+        ("VID06_000002", "test"),
+    ]
     smoke_split = {r["frame_id"]: r["split"] for r in index["smoke"]}
     clean_split = {r["frame_id"]: r["split"] for r in index["clean"]}
     for pair in index["pairs"]:

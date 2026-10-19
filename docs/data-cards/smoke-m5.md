@@ -70,6 +70,9 @@ clinical utility.
   an error.
 - **Smoke:** by whole sequence, never by frame, stratified by render generation, salted
   hash order: 15 % val, 15 % test, the rest train.
+- **Real smoke:** frames rejected as hazy are kept per split, with no ground truth: all of
+  train (the unpaired smoky domain for CycleGAN), the 200 hazy-est of val and of test (haze-drop
+  and visual checks). They follow the same whole-video split.
 - **Pairs:** a pair takes its clean frame and its smoke layer from the same split. Val
   and test pairs are fixed and reproducible bit-for-bit; train pairs are composited on
   the fly from train frames and train smoke only (`osv/datasets/desmoke.py`).
