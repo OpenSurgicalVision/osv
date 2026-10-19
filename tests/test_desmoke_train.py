@@ -15,6 +15,15 @@ from osv.models.desmoke import ResidualUNet, build_desmoke_model
 from osv.train import desmoke as T
 
 
+def label_real_smoke(out):
+    """What a reviewer's labels will do: mark every kept real-smoke frame as smoke."""
+    path = out / "index.json"
+    index = json.loads(path.read_text())
+    for record in index["real_smoke"]:
+        record["smoke"] = True
+    path.write_text(json.dumps(index))
+
+
 def test_untrained_model_is_the_identity_at_any_frame_size():
     model = ResidualUNet(base=8, depth=3).eval()
     smoky = torch.rand(2, 3, 54, 97)  # not a multiple of 8 either way
@@ -114,17 +123,22 @@ def test_cpu_run_trains_evaluates_against_the_no_op_and_refuses_a_changed_resume
         )
 
 
-def test_test_split_run_also_scores_real_smoke_by_haze_drop(tmp_path):
+def test_test_split_run_scores_only_labelled_real_smoke_by_haze_drop(tmp_path):
     run_build(tmp_path, "out")
-    result = T.train(
-        config_for(tmp_path, eval_split="test"),
-        device="cpu",
-        out_dir=tmp_path / "run",
-        resume=False,
-        skip_quota=True,
-        use_mlflow=False,
-    )
-    real = result["real_smoke"]
+
+    def run():
+        return T.train(
+            config_for(tmp_path, eval_split="test"),
+            device="cpu",
+            out_dir=tmp_path / "run",
+            resume=False,
+            skip_quota=True,
+            use_mlflow=False,
+        )
+
+    assert run()["real_smoke"] is None  # hazy is not smoke until a person says so
+    label_real_smoke(tmp_path / "out")
+    real = run()["real_smoke"]
     assert real["haze_before"]["n"] == 1 and np.isfinite(real["haze_drop"]["mean"])
 
 

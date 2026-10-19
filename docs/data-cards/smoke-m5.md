@@ -2,10 +2,25 @@
 
 **RESEARCH USE ONLY — NOT FOR CLINICAL USE**
 
-Status: **approved, not yet built.** `cholect50.yaml`, `blender_smoke.yaml` and the build
-config `smoke_m5.yaml` were approved by the project owner on 2026-10-19; `clean.haze_max = 0.28`
-comes from `python -m osv.datasets.smoke_m5 calibrate` (quantiles and the decision are in the
-config). Next: `dvc repro smoke_m5_build`.
+Status: **built** (2026-10-19, `dvc repro smoke_m5_build` on the owner's machine).
+`cholect50.yaml`, `blender_smoke.yaml` and the build config `smoke_m5.yaml` were approved by
+the project owner on 2026-10-19; `clean.haze_max = 0.28` comes from
+`python -m osv.datasets.smoke_m5 calibrate` (quantiles and the decision are in the config).
+The real-smoke frames are **not usable yet**: see section 5.
+
+| `counts` in `index.json` | train | val | test |
+|---|---:|---:|---:|
+| videos | 35 | 5 | 10 |
+| strided frames (every 10th) | 7 298 | 682 | 2 129 |
+| clean (haze ≤ 0.28) | 5 882 | 518 | 1 555 |
+| rejected | 1 416 | 164 | 574 |
+| real smoke kept (unlabelled) | 1 210 | 145 | 200 |
+| smoke layers | 558 | 142 | 153 |
+| fixed pairs | on the fly | 518 | 1 555 |
+
+78.7 % of strided frames are clean (calibration expected about 77 %). Real smoke is smaller
+than rejected because black or blown-out frames (score 1.0) are never kept; test is capped
+at 200.
 
 ## 1. Dataset Origin & Original Authors
 
@@ -16,8 +31,9 @@ config). Next: `dvc repro smoke_m5_build`.
   Cite: Nwoye et al., *Rendezvous*, Medical Image Analysis 78 (2022) 102433; splits:
   Nwoye & Padoy, arXiv:2204.05235.
 - **Smoke layers:** the project's own Blender (Mantaflow) smoke simulations, rendered
-  as straight-alpha RGBA over a transparent background: 36 sequences, 919 kept frames,
-  1280×720. Per-sequence `config.json` / `meta.json` record seed, emitter, pulses and
+  as straight-alpha RGBA over a transparent background: 36 sequences, 1280×720.
+  `manifest.jsonl` lists 919 frames; the 853 with `quality: ok` are used, the rest
+  (e.g. `clipped`) are dropped. Per-sequence `config.json` / `meta.json` record seed, emitter, pulses and
   shading. The generator scripts are not yet in the repository.
 - **Pairs:** composited by `osv/augment/smoke.py` with the single-scattering model
   `I = J'·(1 − a) + C·a` (optical-depth gain on the render's alpha, smoke colour scaled
@@ -56,6 +72,16 @@ clinical utility.
   are those with a dark-channel haze score at most `haze_max`; light real haze can pass
   and becomes part of the "clean" target. The threshold, its sample and its previews
   are recorded in review.
+- **Hazy is not smoky.** The dark-channel score that filters clean frames is not a smoke
+  detector. The owner's review of the build's train real-smoke frames (2026-10-19, a sheet
+  of the lowest-scored, random and highest-scored) found mostly glare and pale tissue near
+  the threshold and the trocar port at the top. So `real_smoke` is a pool of candidates,
+  not smoke: a frame counts as real smoke only once its record carries `"smoke": true`
+  from a person's label (`osv.datasets.desmoke.confirmed_smoke`). None are labelled yet,
+  so the CycleGAN baseline refuses to train and the real-smoke haze drop is skipped; the
+  supervised baselines (residual U-Net, Pix2Pix, SRGAN) train on synthetic pairs and are
+  unaffected. The same finding means some rejected frames are clean: the clean set is
+  conservative, not complete.
 - **Smoke variety** is bounded by 36 simulated plumes (two render generations: white
   shape-in-alpha and lit/tinted). Augmentation widens pose, density and colour, not
   plume physics.
@@ -70,9 +96,9 @@ clinical utility.
   an error.
 - **Smoke:** by whole sequence, never by frame, stratified by render generation, salted
   hash order: 15 % val, 15 % test, the rest train.
-- **Real smoke:** frames rejected as hazy are kept per split, with no ground truth: all of
-  train (the unpaired smoky domain for CycleGAN), the 200 hazy-est of val and of test (haze-drop
-  and visual checks). They follow the same whole-video split.
+- **Real smoke:** frames rejected as hazy are kept per split as smoke candidates, with no
+  ground truth: all of train, the 200 hazy-est of val and of test. They follow the same
+  whole-video split. Only those labelled as smoke are used (section 5).
 - **Pairs:** a pair takes its clean frame and its smoke layer from the same split. Val
   and test pairs are fixed and reproducible bit-for-bit; train pairs are composited on
   the fly from train frames and train smoke only (`osv/datasets/desmoke.py`).

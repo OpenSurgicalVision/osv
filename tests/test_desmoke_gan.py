@@ -7,6 +7,7 @@ import math
 
 import pytest
 import torch
+from test_desmoke_train import label_real_smoke
 from test_smoke_m5 import run_build
 from torchvision.models.vgg import cfgs, make_layers
 
@@ -88,8 +89,11 @@ def test_linear_decay_holds_then_reaches_zero():
     assert [factor(e) for e in range(4)] == pytest.approx([1.0, 1.0, 2 / 3, 1 / 3])
 
 
-def test_unpaired_dataset_draws_real_smoke_and_clean_frames_of_one_split(tmp_path):
+def test_unpaired_dataset_draws_labelled_real_smoke_and_clean_frames_of_one_split(tmp_path):
     run_build(tmp_path, "out")
+    with pytest.raises(ValueError, match="none are labelled yet"):
+        UnpairedSmoke("train", processed_dir=tmp_path / "out")
+    label_real_smoke(tmp_path / "out")
     dataset = UnpairedSmoke("train", processed_dir=tmp_path / "out", seed=3)
     assert len(dataset) == 3  # 3 clean train frames walked, 1 real smoky frame drawn
     items = [dataset[i] for i in range(len(dataset))]
@@ -161,6 +165,7 @@ def test_srgan_needs_local_vgg_weights_and_hashes_them_into_the_experiment(tmp_p
 
 def test_cyclegan_trains_on_real_smoke_through_the_cli_and_scores_the_test_split(tmp_path):
     run_build(tmp_path, "out")
+    label_real_smoke(tmp_path / "out")
     argv = [
         "--architecture", "cyclegan", "--epochs", "1", "--batch-size", "2", "--crop", "32",
         "--base-channels", "8", "--num-workers", "0", "--device", "cpu", "--eval-split", "test",
