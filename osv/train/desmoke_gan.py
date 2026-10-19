@@ -14,9 +14,12 @@ the fixed synthetic pairs next to the no-op baseline, plus the real-smoke haze
 drop on `--eval-split test` once real frames are labelled as smoke.
 
 * Pix2Pix and SRGAN train on the synthetic pairs (new smoke every epoch).
-  Pix2Pix: conditional PatchGAN, vanilla GAN loss + 100 * L1. SRGAN: VGG19
-  relu5_4 content loss + 1e-3 * adversarial loss; the VGG weights are a local
-  file (`--vgg-weights`), never a download (R-07).
+  Pix2Pix: conditional PatchGAN, vanilla GAN loss + 100 * L1. SRGAN: first
+  `pretrain_epochs` (default 5) of SRResNet on pixel MSE alone, the paper's
+  initialisation of the GAN, then VGG19 relu5_4 content loss + 1e-3 *
+  adversarial loss; the VGG weights are a local file (`--vgg-weights`), never a
+  download (R-07). relu5_4 barely sees colour and brightness: the first
+  full-frame run, without the MSE stage, drifted to a solid red frame.
 * CycleGAN trains on unpaired real smoky and clean train frames - the only one
   of the three that sees real smoke in training. LSGAN, cycle 10, identity 5,
   a 50-image history per discriminator. Its smoky domain is the real frames a
@@ -24,7 +27,8 @@ drop on `--eval-split test` once real frames are labelled as smoke.
   are some it refuses to start.
 
 All three use Adam (2e-4, betas 0.5 / 0.999), constant for the first half of the
-epochs and linearly decayed to zero over the second, as pix2pix and CycleGAN do.
+epochs and linearly decayed to zero over the second, as pix2pix and CycleGAN do;
+for SRGAN the schedule spans both stages.
 Steps run in float32. A GAN can paint texture the smoke hid; the PSNR / SSIM
 against the clean frame, not the look of the output, is the result.
 """
@@ -58,6 +62,8 @@ from osv.train.desmoke import (
 )
 from osv.train.segmentation import RunRecorder, pin_seed, preflight_quota
 
+SRGAN_PRETRAIN_EPOCHS = 5
+
 
 @dataclass
 class GanConfig(DesmokeConfig):
@@ -73,9 +79,20 @@ class GanConfig(DesmokeConfig):
     vgg_weights: str | None = None  # srgan; the file's sha256 is what enters the hash
     vgg_sha256: str = ""
     vgg_layer: int = VGG19_RELU5_4
+    # srgan: SRResNet epochs on pixel MSE before the GAN. A fixed number, not a share of
+    # `epochs`, so that a longer resumed run keeps its config_hash.
+    pretrain_epochs: int | None = None
     experiment: str = "osv-m5-desmoke-gan"
 
     HASH_SKIP = DesmokeConfig.HASH_SKIP | {"vgg_weights"}
+
+    def __post_init__(self) -> None:
+        if self.pretrain_epochs is None:
+            self.pretrain_epochs = SRGAN_PRETRAIN_EPOCHS if self.architecture == "srgan" else 0
+        if self.pretrain_epochs and self.architecture != "srgan":
+            raise ValueError(
+                f"pretrain_epochs is SRGAN's SRResNet stage, not {self.architecture}'s"
+            )
 
 
 def _signed(image: torch.Tensor) -> torch.Tensor:
@@ -97,6 +114,15 @@ def _requires_grad(nets: list[nn.Module], flag: bool) -> None:
 
 def _detached(terms: dict[str, torch.Tensor]) -> dict[str, float]:
     return {name: float(value.detach()) for name, value in terms.items()}
+
+
+def pretrain_step(nets, optimizers, batch) -> dict[str, float]:
+    """One SRResNet update on pixel MSE; the discriminator waits for the GAN stage."""
+    optimizers["generator"].zero_grad(set_to_none=True)
+    content = F.mse_loss(nets["generator"](batch["smoky"])["clean"], batch["clean"])
+    content.backward()
+    optimizers["generator"].step()
+    return _detached({"loss": content, "content": content})
 
 
 def paired_step(nets, optimizers, batch, config: GanConfig, perceptual) -> dict[str, float]:
@@ -264,7 +290,7 @@ def _perceptual(config: GanConfig, device: str) -> VGGPerceptual | None:
     return loss
 
 
-def _run_epoch(nets, optimizers, loader, crops, config, device, *, perceptual, pools):
+def _run_epoch(nets, optimizers, loader, crops, config, device, *, perceptual, pools, pretraining):
     for net in nets.values():
         net.train()
     sums: dict[str, float] = {}
@@ -272,7 +298,9 @@ def _run_epoch(nets, optimizers, loader, crops, config, device, *, perceptual, p
     for raw in loader:
         batch = random_crop(raw, config.crop, crops)
         batch = {k: batch[k].to(device, non_blocking=True) for k in ("smoky", "clean")}
-        if pools is None:
+        if pretraining:
+            terms = pretrain_step(nets, optimizers, batch)
+        elif pools is None:
             terms = paired_step(nets, optimizers, batch, config, perceptual)
         else:
             terms = cycle_step(nets, optimizers, batch, config, pools)
@@ -361,7 +389,15 @@ def train(
             train_ds.set_epoch(epoch)
             started = time.time()
             means = _run_epoch(
-                nets, optimizers, loader, crops, config, device, perceptual=perceptual, pools=pools
+                nets,
+                optimizers,
+                loader,
+                crops,
+                config,
+                device,
+                perceptual=perceptual,
+                pools=pools,
+                pretraining=epoch < (config.pretrain_epochs or 0),
             )
             for scheduler in schedulers.values():
                 scheduler.step()
