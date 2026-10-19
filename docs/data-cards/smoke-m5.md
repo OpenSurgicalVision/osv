@@ -2,11 +2,10 @@
 
 **RESEARCH USE ONLY — NOT FOR CLINICAL USE**
 
-Status: **in review; nothing built yet.** `cholect50.yaml` and `blender_smoke.yaml`
-were approved by the project owner on 2026-10-19. The build config `smoke_m5.yaml`
-stays PROPOSED until `clean.haze_max` is set from
-`python -m osv.datasets.smoke_m5 calibrate`; `dvc repro smoke_m5_build` refuses to run
-before that.
+Status: **approved, not yet built.** `cholect50.yaml`, `blender_smoke.yaml` and the build
+config `smoke_m5.yaml` were approved by the project owner on 2026-10-19; `clean.haze_max = 0.28`
+comes from `python -m osv.datasets.smoke_m5 calibrate` (quantiles and the decision are in the
+config). Next: `dvc repro smoke_m5_build`.
 
 ## 1. Dataset Origin & Original Authors
 
@@ -71,6 +70,9 @@ clinical utility.
   an error.
 - **Smoke:** by whole sequence, never by frame, stratified by render generation, salted
   hash order: 15 % val, 15 % test, the rest train.
+- **Real smoke:** frames rejected as hazy are kept per split, with no ground truth: all of
+  train (the unpaired smoky domain for CycleGAN), the 200 hazy-est of val and of test (haze-drop
+  and visual checks). They follow the same whole-video split.
 - **Pairs:** a pair takes its clean frame and its smoke layer from the same split. Val
   and test pairs are fixed and reproducible bit-for-bit; train pairs are composited on
   the fly from train frames and train smoke only (`osv/datasets/desmoke.py`).

@@ -20,8 +20,9 @@ What `build` writes under --out:
   inputs and effective alpha for evaluation; the clean target is the clean frame
   named in the index. Train pairs are composited on the fly
   (`osv.datasets.desmoke`), from train frames and train smoke only;
-* ``real_smoke/<split>/*.png`` - the hazy-est real frames of one split, with no
-  ground truth, for qualitative and no-reference evaluation;
+* ``real_smoke/<split>/*.png`` - the hazy-est rejected real frames per split, with
+  no ground truth: train for unpaired (CycleGAN) training, val/test for
+  qualitative and no-reference evaluation;
 * ``index.json`` - config and its hash, input hashes, both splits, every frame's
   haze score (kept and rejected), every pair's parameters.
 """
@@ -136,10 +137,15 @@ def _write_clean(
     source: C.FrameSource,
     split_of: dict[str, str],
 ) -> None:
-    """Clean frames by haze score; the hazy-est of one split become real-smoke frames."""
+    """Clean frames by haze score; the hazy-est rejected frames become real-smoke frames.
+
+    `real_smoke` maps each split to how many to keep (null: every rejected frame). Train
+    real smoke is the unpaired smoky domain for CycleGAN; test real smoke is scored by
+    haze drop. Black or blown-out frames (score 1.0) are never real smoke.
+    """
     size, haze_max = config["size"], float(config["clean"]["haze_max"])
-    real = config["real_smoke"]
-    hazy: list[tuple[float, C.Frame]] = []
+    real: dict[str, int | None] = config["real_smoke"]
+    hazy: dict[str, list[tuple[float, C.Frame]]] = {split: [] for split in real}
     for split in C.SPLITS:
         for frame in C.iter_split(source, split_of, split, stride=int(config["clean"]["stride"])):
             rgb = source.read(frame)
@@ -155,17 +161,17 @@ def _write_clean(
                 index["clean"].append(record)
                 continue
             index["rejected"].append(record)
-            if split == real["split"] and score < 1.0:
-                hazy.append((score, frame))
-    ranked = sorted(hazy, key=lambda pair: (-pair[0], pair[1].frame_id))[: int(real["count"])]
-    for score, frame in ranked:
-        save(
-            out / "real_smoke" / real["split"] / f"{frame.frame_id}.png",
-            fit(source.read(frame), size),
-        )
-        index["real_smoke"].append(
-            {"frame_id": frame.frame_id, "split": real["split"], "haze": round(score, 5)}
-        )
+            if split in hazy and score < 1.0:
+                hazy[split].append((score, frame))
+    for split, count in real.items():
+        ranked = sorted(hazy[split], key=lambda pair: (-pair[0], pair[1].frame_id))
+        for score, frame in ranked if count is None else ranked[: int(count)]:
+            save(
+                out / "real_smoke" / split / f"{frame.frame_id}.png", fit(source.read(frame), size)
+            )
+            index["real_smoke"].append(
+                {"frame_id": frame.frame_id, "split": split, "haze": round(score, 5)}
+            )
 
 
 def _write_smoke(
