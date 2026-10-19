@@ -96,4 +96,59 @@ class SyntheticSmokePairs(Dataset):
         }
 
 
-__all__ = ["DEFAULT_PROCESSED_DIR", "SyntheticSmokePairs"]
+class UnpairedSmoke(Dataset):
+    """Real smoky and clean frames of one split, drawn independently (CycleGAN).
+
+    The smoky domain is the build's `real_smoke` frames, the clean domain its clean
+    frames, both from the same videos of the same split. An epoch walks the larger
+    domain; the partner from the other domain is drawn from (seed, epoch, index).
+    """
+
+    def __init__(
+        self,
+        split: str = "train",
+        *,
+        processed_dir: str | Path = DEFAULT_PROCESSED_DIR,
+        seed: int = 1337,
+        limit: int | None = None,
+    ) -> None:
+        self.root = Path(processed_dir)
+        index: dict[str, Any] = json.loads((self.root / "index.json").read_text())
+        self.split, self.seed, self.epoch = split, int(seed), 0
+        self.clean = [r["frame_id"] for r in index["clean"] if r["split"] == split]
+        self.smoky = [r["frame_id"] for r in index["real_smoke"] if r["split"] == split]
+        if not self.clean or not self.smoky:
+            raise ValueError(
+                f"split {split!r} needs clean and real smoky frames; "
+                "set real_smoke for it in the smoke_m5 build config"
+            )
+        self.length = max(len(self.clean), len(self.smoky))
+        if limit is not None:
+            self.length = min(self.length, int(limit))
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = int(epoch)
+
+    def __len__(self) -> int:
+        return self.length
+
+    def __getitem__(self, item: int) -> dict[str, Any]:
+        rng = np.random.default_rng([self.seed, self.epoch, item])
+        if len(self.clean) >= len(self.smoky):
+            clean_id = self.clean[item % len(self.clean)]
+            smoky_id = self.smoky[int(rng.integers(len(self.smoky)))]
+        else:
+            smoky_id = self.smoky[item % len(self.smoky)]
+            clean_id = self.clean[int(rng.integers(len(self.clean)))]
+        smoky = _rgb(self.root / "real_smoke" / self.split / f"{smoky_id}.png")
+        clean = _rgb(self.root / "clean" / self.split / f"{clean_id}.png")
+        return {
+            "smoky": _chw(S.to_float(smoky)),
+            "clean": _chw(S.to_float(clean)),
+            "name": f"{self.split}-{self.epoch}-{item}",
+            "smoky_id": smoky_id,
+            "clean_id": clean_id,
+        }
+
+
+__all__ = ["DEFAULT_PROCESSED_DIR", "SyntheticSmokePairs", "UnpairedSmoke"]
