@@ -1,0 +1,21 @@
+# PROPOSED build config for the M5 desmoking data (synthetic smoke over CholecT50).
+# Becomes buildable only when a human owner sets `status: APPROVED` in review, after
+# `python -m osv.datasets.smoke_m5 calibrate` has been used to set clean.haze_max.
+
+name: smoke_m5
+status: PROPOSED
+
+size: [854, 480]        # width, height of every written frame and smoke layer
+
+clean:
+  stride: 10            # every 10th frame of a video (CholecT50 is 1 fps: one per 10 s)
+  haze_max: null        # frames with osv.datasets.cholect50.haze_score above this are not clean
+
+real_smoke:
+  split: test           # real smoky frames for qualitative / no-reference evaluation
+  count: 200            # the hazy-est strided frames of that split (black frames excluded)
+
+eval_pairs:
+  splits: [val, test]   # fixed pairs, regenerated bit-for-bit; train pairs are made on the fly
+  per_clean_frame: 1
+  seed: 20261019

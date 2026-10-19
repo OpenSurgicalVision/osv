@@ -1,0 +1,45 @@
+# PROPOSED manifest (R-23) for the project's own synthetic smoke renders. Becomes usable only
+# when a human owner sets `status: APPROVED` (and settles the licence below) in review.
+#
+# The renders contain no patient data: they are Blender (Mantaflow) smoke simulations
+# rendered over a transparent background. They are not downloaded; the project owner renders
+# them and passes the folder in via OSV_BLENDER_SMOKE_DIR.
+
+name: blender_smoke
+status: PROPOSED
+
+source:
+  type: generated
+  tool: Blender (Mantaflow gas simulation, volumetric render)
+  generator: >
+    Owner's local driver scripts and per-sequence .blend files; not yet in the repository.
+    Each sequence folder keeps its config.json / meta.json (seed, emitter, pulses, shading),
+    so a render can be traced to its settings even before the generator is committed.
+
+license:
+  name: TO BE DECIDED BY THE OWNER   # proposal: CC BY 4.0 for the renders themselves
+  contains_patient_data: false
+  note: >
+    Composited pairs inherit the licence of their clean frames (CholecT50: CC BY-NC-SA 4.0),
+    whatever licence the renders get.
+
+layout:
+  frames: "vNN/frames/vNN_fNNNN.png"   # RGBA, straight (not premultiplied) alpha
+  sequence_meta: "vNN/meta.json"
+  index: manifest.jsonl                # one line per kept frame; only quality == "ok" is used
+
+content:
+  description: >
+    36 smoke sequences of up to 30 frames each (919 frames), 1280x720 RGBA. Two render
+    generations: v01-v12 white smoke whose shape is carried by alpha alone, v13-v36 lit and
+    tinted volumetric smoke. Alpha means are 1-5 % of full scale with plume cores up to 1.0.
+  sequence_count: 36
+  frame_count: 919
+
+# The renders' own "test" flag is false everywhere, so the split is made here: whole
+# sequences only, stratified by render generation, deterministic from the salt.
+split:
+  key: sequence
+  salt: osv-blender-smoke-v1
+  val_fraction: 0.15
+  test_fraction: 0.15
