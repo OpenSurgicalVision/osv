@@ -2,11 +2,10 @@
 
 **RESEARCH USE ONLY — NOT FOR CLINICAL USE**
 
-Status: **in review; nothing built yet.** `cholect50.yaml` and `blender_smoke.yaml`
-were approved by the project owner on 2026-10-19. The build config `smoke_m5.yaml`
-stays PROPOSED until `clean.haze_max` is set from
-`python -m osv.datasets.smoke_m5 calibrate`; `dvc repro smoke_m5_build` refuses to run
-before that.
+Status: **approved, not yet built.** `cholect50.yaml`, `blender_smoke.yaml` and the build
+config `smoke_m5.yaml` were approved by the project owner on 2026-10-19; `clean.haze_max = 0.28`
+comes from `python -m osv.datasets.smoke_m5 calibrate` (quantiles and the decision are in the
+config). Next: `dvc repro smoke_m5_build`.
 
 ## 1. Dataset Origin & Original Authors
 

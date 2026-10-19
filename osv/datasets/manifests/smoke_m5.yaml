@@ -1,15 +1,22 @@
-# PROPOSED build config for the M5 desmoking data (synthetic smoke over CholecT50).
-# Becomes buildable only when a human owner sets `status: APPROVED` in review, after
-# `python -m osv.datasets.smoke_m5 calibrate` has been used to set clean.haze_max.
+# Build config for the M5 desmoking data (synthetic smoke over CholecT50). APPROVED by the
+# project owner (R0) on 2026-10-19 in the working session, with clean.haze_max chosen from
+# the calibration recorded below; relayed by the agent that drafted it, the owner's PR
+# approval is the record.
 
 name: smoke_m5
-status: PROPOSED
+status: APPROVED
 
 size: [854, 480]        # width, height of every written frame and smoke layer
 
 clean:
   stride: 10            # every 10th frame of a video (CholecT50 is 1 fps: one per 10 s)
-  haze_max: null        # frames with osv.datasets.cholect50.haze_score above this are not clean
+  haze_max: 0.28        # frames with osv.datasets.cholect50.haze_score above this are not clean
+  calibration:          # `smoke_m5 calibrate`, 500 strided frames of all 50 videos, 2026-10-19
+    quantiles: {p5: 0.0941, p10: 0.1137, p25: 0.1608, p50: 0.2118, p75: 0.2745, p90: 0.3451, p95: 0.4196}
+    decision: >
+      The owner found no visible smoke in deciles 6 and 7 (scores up to about 0.30), so the
+      threshold sits a little below the top of decile 7: about 77 % of strided
+      frames stay clean. Deciles 8-9 were not judged; anything above 0.28 is rejected.
 
 real_smoke:
   split: test           # real smoky frames for qualitative / no-reference evaluation

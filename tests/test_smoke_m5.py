@@ -144,13 +144,16 @@ def test_only_approved_manifests_let_frames_be_read(tmp_path):
         proposed.write_text(path.read_text().replace("status: APPROVED", "status: PROPOSED"))
         with pytest.raises(RuntimeError, match="approve"):
             loader(proposed)
-    # The build config waits for the calibrated haze threshold.
+    # The build config needs its approval and a calibrated haze threshold.
+    assert M.load_config()["clean"]["haze_max"] == 0.28
+    proposed = tmp_path / "smoke_m5.yaml"
+    proposed.write_text(M.CONFIG_PATH.read_text().replace("status: APPROVED", "status: PROPOSED"))
     with pytest.raises(RuntimeError, match="approve"):
-        M.load_config()
-    approved = tmp_path / "smoke_m5.yaml"
-    approved.write_text(M.CONFIG_PATH.read_text().replace("status: PROPOSED", "status: APPROVED"))
+        M.load_config(proposed)
+    uncalibrated = tmp_path / "uncalibrated.yaml"
+    uncalibrated.write_text(M.CONFIG_PATH.read_text().replace("haze_max: 0.28", "haze_max: null"))
     with pytest.raises(RuntimeError, match="haze_max is unset"):
-        M.load_config(approved)
+        M.load_config(uncalibrated)
 
 
 def write_cholect(root: Path, videos: dict[str, int]) -> None:
