@@ -35,7 +35,9 @@ jobs:
       - name: Determine changed files in scope
         id: changed
         run: |
-          git fetch --no-tags --depth=1 origin ${{ github.event.pull_request.base.sha }}
+          # checkout@v4 holds only the PR merge commit (depth 1): fetch both ends by SHA.
+          # git diff compares the two trees, so no history between them is needed.
+          git fetch --no-tags --depth=1 origin ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
           git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} \
             -- osv/datasets osv/deid data dvc.yaml dvc.lock > changed_files.txt
           echo "count=$(wc -l < changed_files.txt)" >> "$GITHUB_OUTPUT"
