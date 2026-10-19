@@ -17,3 +17,40 @@ stages:
       md5: d4ffd0dfe50c9254b9b42b7938b829e3.dir
       size: 1038242522
       nfiles: 2
+  smoke_m5_build:
+    cmd: python -m osv.datasets.smoke_m5 build --out data/processed/smoke_m5
+    deps:
+    - path: osv/augment/smoke.py
+      hash: md5
+      md5: 5e31f8096b3db14d6fc0f657b03f283d
+      size: 7553
+    - path: osv/datasets/blender_smoke.py
+      hash: md5
+      md5: 553ba7d3355991e223cb920714d5d14b
+      size: 5283
+    - path: osv/datasets/cholect50.py
+      hash: md5
+      md5: 78f62155522c18e6ebf71aa1ce6b47a4
+      size: 7043
+    - path: osv/datasets/manifests/blender_smoke.yaml
+      hash: md5
+      md5: d6ecaff5f80fb2a479b58a8e59b865da
+      size: 2043
+    - path: osv/datasets/manifests/cholect50.yaml
+      hash: md5
+      md5: 1847982dbe18245a42e55afa847f6f6c
+      size: 2953
+    - path: osv/datasets/manifests/smoke_m5.yaml
+      hash: md5
+      md5: adfba91e321eafb769412ccdbaaa034e
+      size: 1554
+    - path: osv/datasets/smoke_m5.py
+      hash: md5
+      md5: 2f6b89c355516e64afd417f9d1658fd0
+      size: 13424
+    outs:
+    - path: data/processed/smoke_m5
+      hash: md5
+      md5: 0b23310a22d7b9f41170c941d5cf0ba1.dir
+      size: 4880527629
+      nfiles: 14510
