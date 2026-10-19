@@ -1,0 +1,59 @@
+# APPROVED by the project owner (R0) on 2026-10-19 in the working session and relayed by the
+# agent that drafted it (not entered first-hand by the owner); the owner's PR approval is the
+# record. Approval covers the source, licence and official split below.
+#
+# osv/datasets/cholect50.py refuses to read frames unless `status: APPROVED`.
+#
+# CholecT50 has no public download URL: CAMMA releases it per request with a one-time
+# password, which is never recorded here or anywhere in git. The archive is fetched by the
+# project owner by hand and its path passed in via CHOLECT50_RAW_ZIP (or the extracted
+# folder via CHOLECT50_DIR); the sha256 below is what the converter checks, so a different
+# release or a corrupted copy fails loudly instead of silently changing the benchmark.
+
+name: cholect50
+status: APPROVED
+
+source:
+  type: manual_request
+  url: https://github.com/CAMMA-public/cholect50
+  request: "Release e-mail from the CAMMA Dataset Department (camma.dataset@gmail.com) to the project owner"
+  files:
+    - path: CholecT50.zip
+      sha256: 57cf20784722f034accc7016136deb62340731bd39d594ac52be3da447ceae80
+
+license:
+  name: CC BY-NC-SA 4.0
+  redistribution_allowed: true   # under the same licence, citing the papers below
+  commercial_use: false          # accepted for OSV by docs/adr/0002-accepting-noncommercial-datasets.md
+  attribution_required: true
+  share_alike: true
+  citation:
+    - "C.I. Nwoye, T. Yu, C. Gonzalez, B. Seeliger, P. Mascagni, D. Mutter, J. Marescaux,
+       N. Padoy. Rendezvous: Attention Mechanisms for the Recognition of Surgical Action
+       Triplets in Endoscopic Videos. Medical Image Analysis 78 (2022) 102433."
+    - "C.I. Nwoye, N. Padoy. Data Splits and Metrics for Method Benchmarking on Surgical
+       Action Triplet Datasets. arXiv:2204.05235 (2022)."
+  derived_from: Cholec80 and further cholecystectomy recordings (CAMMA / IRCAD, Strasbourg)
+
+content:
+  description: >
+    50 laparoscopic cholecystectomy videos, frames extracted at 1 fps
+    (videos/VIDnn/NNNNNN.png) with triplet labels (labels/VIDnn.json). Published
+    de-identified by the provider.
+  source_video_count: 50
+  modality: 2D RGB frame
+
+patient_id_field:
+  strategy: folder_prefix
+  pattern: "VIDnn"   # one video = one operation = one patient (R-08)
+
+# The official "cholect50" split of the Rendezvous paper, as defined by split_selector in
+# github.com/CAMMA-public/cholect50 (dataloader_pth.py). Whole videos only; the converter
+# fails if the archive holds a video this table does not place.
+split:
+  variant: cholect50
+  train: [VID01, VID02, VID04, VID05, VID13, VID15, VID18, VID22, VID23, VID25, VID26, VID27,
+          VID31, VID35, VID36, VID40, VID43, VID47, VID48, VID49, VID52, VID56, VID57, VID60,
+          VID62, VID65, VID66, VID68, VID70, VID75, VID79, VID92, VID96, VID103, VID110]
+  val: [VID08, VID12, VID29, VID50, VID78]
+  test: [VID06, VID10, VID14, VID32, VID42, VID51, VID73, VID74, VID80, VID111]

@@ -14,3 +14,18 @@ stages:
       - osv/datasets/manifests/cholecseg8k.yaml
     outs:
       - data/processed/cholecseg8k
+  smoke_m5_build:
+    # M5 desmoking data (osv/datasets/smoke_m5.py). Inputs stay outside the repo and are
+    # read in Python, not shell-expanded: CHOLECT50_RAW_ZIP (or CHOLECT50_DIR) and
+    # OSV_BLENDER_SMOKE_DIR. All three manifests below must be APPROVED (R-23).
+    cmd: python -m osv.datasets.smoke_m5 build --out data/processed/smoke_m5
+    deps:
+      - osv/augment/smoke.py
+      - osv/datasets/blender_smoke.py
+      - osv/datasets/cholect50.py
+      - osv/datasets/smoke_m5.py
+      - osv/datasets/manifests/blender_smoke.yaml
+      - osv/datasets/manifests/cholect50.yaml
+      - osv/datasets/manifests/smoke_m5.yaml
+    outs:
+      - data/processed/smoke_m5
