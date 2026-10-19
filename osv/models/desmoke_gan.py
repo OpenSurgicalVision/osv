@@ -10,7 +10,8 @@ Faithful, ordinary reproductions of three published designs (rows in
 * **SRGAN** (Ledig et al. 2017) at scale 1: the SRResNet generator without its
   pixel-shuffle upsampling, the paper's VGG-style global discriminator, and a
   VGG19 relu5_4 perceptual loss. The generator predicts a residual on its input
-  so an untrained network is the identity.
+  so an untrained network is the identity. As in the paper, the GAN starts from
+  an SRResNet trained on pixel MSE (`osv.train.desmoke_gan`, `pretrain_epochs`).
 * **CycleGAN** (Zhu et al. 2017): ResNet-9 generators smoky->clean and
   clean->smoky, two 70x70 PatchGANs, trained on unpaired real smoky and clean
   CholecT50 frames.
@@ -52,7 +53,11 @@ class PixelRange(nn.Module):
             mode = "reflect" if pad_h < height and pad_w < width else "replicate"
             x = F.pad(x, (0, pad_w, 0, pad_h), mode=mode)
         y = self.generator(x)[..., :height, :width]
-        return {"clean": ((y + 1) / 2).clamp(0.0, 1.0)}
+        clean = (y + 1) / 2
+        # Only evaluation clamps. A clamp has no gradient past the bounds, so in training
+        # a pixel pushed out of range would stay there: the first full-frame SRGAN run
+        # saturated to pure red within an epoch and never moved again.
+        return {"clean": clean if self.training else clean.clamp(0.0, 1.0)}
 
 
 # --- Pix2Pix -----------------------------------------------------------------------------
@@ -164,7 +169,7 @@ class SRResNetGenerator(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.head(x)
-        return (x + self.tail(features + self.body(features))).clamp(-1.0, 1.0)
+        return x + self.tail(features + self.body(features))  # linear output, as in SRResNet
 
 
 class SRGANDiscriminator(nn.Module):

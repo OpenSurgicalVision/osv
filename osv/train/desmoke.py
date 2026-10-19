@@ -381,6 +381,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--base-channels", type=int, default=None, help="default 32 (U-Net), 64 (GANs)")
     p.add_argument("--vgg-weights", default=None, help="srgan: local VGG19 weights file")
+    p.add_argument(
+        "--pretrain-epochs", type=int, default=None, help="srgan: SRResNet MSE epochs, default 5"
+    )
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--data", default=str(DEFAULT_PROCESSED_DIR))
     p.add_argument("--out", default="runs/m5_desmoke")
@@ -422,7 +425,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         from osv.train import desmoke_gan
 
-        config = desmoke_gan.GanConfig(**values, vgg_weights=args.vgg_weights)
+        config = desmoke_gan.GanConfig(
+            **values, vgg_weights=args.vgg_weights, pretrain_epochs=args.pretrain_epochs
+        )
         run = desmoke_gan.train  # type: ignore[assignment]
     run(
         config,

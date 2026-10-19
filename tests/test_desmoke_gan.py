@@ -54,6 +54,29 @@ def test_generators_keep_any_frame_size_and_the_pixel_range(architecture):
         assert set(nets) == {"generator", "generator_back", "discriminator", "discriminator_back"}
 
 
+def test_training_output_is_not_clamped_so_saturated_pixels_still_learn():
+    generator = G.build_gan("srgan", width=8)["generator"]
+    tail = generator.generator.tail
+    torch.nn.init.constant_(tail.bias, 3.0)  # every pixel far above white
+    smoky = torch.rand(1, 3, 16, 16)
+    generator.train()
+    out = generator(smoky)["clean"]
+    assert float(out.detach().min()) > 1
+    out.mean().backward()
+    assert tail.bias.grad is not None and bool((tail.bias.grad != 0).all())
+    generator.eval()
+    with torch.no_grad():
+        assert float(generator(smoky)["clean"].max()) == 1.0
+
+
+def test_only_srgan_has_an_mse_stage():
+    assert TG.GanConfig(architecture="srgan").pretrain_epochs == TG.SRGAN_PRETRAIN_EPOCHS
+    assert TG.GanConfig(architecture="srgan", pretrain_epochs=0).pretrain_epochs == 0
+    assert TG.GanConfig(architecture="pix2pix").pretrain_epochs == 0
+    with pytest.raises(ValueError, match="SRResNet stage"):
+        TG.GanConfig(architecture="pix2pix", pretrain_epochs=2)
+
+
 def test_image_pool_fills_then_mixes_history_with_new_fakes():
     pool = G.ImagePool(2, generator=torch.Generator().manual_seed(0))
     first = torch.zeros(2, 3, 4, 4)
@@ -151,13 +174,16 @@ def test_srgan_needs_local_vgg_weights_and_hashes_them_into_the_experiment(tmp_p
     with pytest.raises(SystemExit, match="R-07"):
         run(gan_config(tmp_path, "srgan"), tmp_path / "run")
     weights = vgg_weights(tmp_path)
-    config = gan_config(tmp_path, "srgan", vgg_weights=str(weights), vgg_layer=3)
+    stages = {"vgg_layer": 3, "epochs": 2, "pretrain_epochs": 1}
+    config = gan_config(tmp_path, "srgan", vgg_weights=str(weights), **stages)
     result = run(config, tmp_path / "run")
     assert len(result["config"]["vgg_sha256"]) == 64
-    assert math.isfinite(result["history"][0]["content"])
+    mse, gan = result["history"]
+    assert "loss_d" not in mse and math.isfinite(mse["content"])  # SRResNet stage
+    assert math.isfinite(gan["loss_d"]) and math.isfinite(gan["content"])
     moved = tmp_path / "elsewhere.pt"
     moved.write_bytes(weights.read_bytes())
-    same = gan_config(tmp_path, "srgan", vgg_weights=str(moved), vgg_layer=3)
+    same = gan_config(tmp_path, "srgan", vgg_weights=str(moved), **stages)
     same.vgg_sha256 = result["config"]["vgg_sha256"]
     same.data_config_sha256 = result["config"]["data_config_sha256"]
     assert same.hash() == result["config_hash"]  # the file's bytes, not its path, define the run
