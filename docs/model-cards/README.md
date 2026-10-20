@@ -13,3 +13,6 @@ Mandatory sections:
 4. Quantitative Evaluation (mIoU, Dice, Latency p95)
 5. Robustness / Edge-Case Breakdown (smoke, glare, blood)
 6. Intended & Prohibited Uses
+
+Cards:
+- [M5 surgical desmoking baselines](m5-desmoke.md): residual U-Net, Pix2Pix, SRGAN. Not released (INCOMPLETE under R-25).
