@@ -46,7 +46,7 @@ from osv.datasets.cholect50 import haze_score
 from osv.datasets.desmoke import DEFAULT_PROCESSED_DIR, SyntheticSmokePairs, confirmed_smoke
 from osv.eval import restoration as R
 from osv.models.desmoke import TASK, build_desmoke_model
-from osv.train.segmentation import RunRecorder, pin_seed, preflight_quota
+from osv.train.segmentation import RunRecorder, pin_seed, preflight_quota, run_name
 
 DISCLAIMER = "RESEARCH USE ONLY - NOT FOR CLINICAL USE"
 
@@ -278,7 +278,9 @@ def train(
     crops = torch.Generator().manual_seed(config.seed + 1)
     history: list[dict[str, Any]] = []
     report: dict[str, Any] = {}
-    recorder = RunRecorder(enabled=use_mlflow, device=device, experiment=config.experiment)
+    recorder = RunRecorder(
+        enabled=use_mlflow, device=device, experiment=config.experiment, run_name=run_name(config)
+    )
     with recorder:
         recorder.log_params(
             {
