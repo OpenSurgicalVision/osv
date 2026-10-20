@@ -126,6 +126,11 @@ def preflight_quota(*, device: str, skip: bool, experiment: str | None = None) -
         )
 
 
+def run_name(config: Any) -> str:
+    """`<architecture>-<config_hash>`: the name a resumed run shares with its first part."""
+    return f"{config.architecture}-{config.hash()}"
+
+
 class RunRecorder:
     """MLflow logging for one training run, and the invariant behind it.
 
@@ -137,11 +142,17 @@ class RunRecorder:
     `gpu_count` is logged explicitly because the gate multiplies duration by it
     and assumes 1 when the parameter is missing - which would silently charge a
     CPU smoke run a GPU-hour per hour.
+
+    `run_name` is set explicitly: with the seed pinned, MLflow's generated name
+    is the same for every run, so a list of runs could not be told apart.
     """
 
-    def __init__(self, *, enabled: bool, device: str, experiment: str) -> None:
+    def __init__(
+        self, *, enabled: bool, device: str, experiment: str, run_name: str | None = None
+    ) -> None:
         self.device = device
         self.experiment = experiment
+        self.run_name = run_name
         self.active = False
         self._mlflow = None
 
@@ -175,7 +186,7 @@ class RunRecorder:
 
     def __enter__(self) -> RunRecorder:
         if self.active:
-            self._run = self._mlflow.start_run()
+            self._run = self._mlflow.start_run(run_name=self.run_name)
             print(f"[osv.train] MLflow run {self._run.info.run_id} in {self.experiment!r}")
         return self
 
@@ -312,7 +323,9 @@ def train(
         start_epoch = load_checkpoint(ckpt_path, model=model, optimizer=optimizer, config=config)
         print(f"[osv.train] resumed from {ckpt_path} at epoch {start_epoch}")
 
-    recorder = RunRecorder(enabled=use_mlflow, device=device, experiment=config.experiment)
+    recorder = RunRecorder(
+        enabled=use_mlflow, device=device, experiment=config.experiment, run_name=run_name(config)
+    )
     history: list[dict[str, Any]] = []
     with recorder:
         recorder.log_params(

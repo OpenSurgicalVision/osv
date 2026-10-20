@@ -60,7 +60,7 @@ from osv.train.desmoke import (
     random_crop,
     split_videos,
 )
-from osv.train.segmentation import RunRecorder, pin_seed, preflight_quota
+from osv.train.segmentation import RunRecorder, pin_seed, preflight_quota, run_name
 
 SRGAN_PRETRAIN_EPOCHS = 5
 
@@ -368,7 +368,9 @@ def train(
     crops = torch.Generator().manual_seed(config.seed + 1)
     history: list[dict[str, Any]] = []
     report: dict[str, Any] = {}
-    recorder = RunRecorder(enabled=use_mlflow, device=device, experiment=config.experiment)
+    recorder = RunRecorder(
+        enabled=use_mlflow, device=device, experiment=config.experiment, run_name=run_name(config)
+    )
     with recorder:
         recorder.log_params(
             {
