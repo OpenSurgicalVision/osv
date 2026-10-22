@@ -52,6 +52,29 @@ per video, per official split and per phase, and as runs of consecutive frames.
 - **Too few for variety:** if fewer than about 1 000 tool-free frames from at least 20 videos
   remain in train, the backgrounds lack variety. The fallback is to inpaint real instruments
   out (section 6).
+- **Census result (2026-10-23).** 8 182 tool-free train frames (11.2 %, in all 35 videos), 891
+  in val and 1 988 in test (not used). Every phase has some.
+- **Look at 48 random tool-free train frames (2026-10-23).**
+
+  | What the frame shows | Share |
+  |---|---:|
+  | clean tissue | about 40 % |
+  | an object the labels do not name (trocars, suction tips, drains, a looped rod, possibly grasper and hook shafts) | 20 % |
+  | black | 15 % |
+  | unreadable: inside a trocar, blown out, out of focus | 15 % |
+
+  A visible instrument in a background teaches the model that real instruments are background,
+  the one error that decides H1 against arm A. So no background is used unseen:
+  - `python -m osv.datasets.m1_backgrounds sheets` keeps every 3rd frame of each run of
+    consecutive tool-free frames;
+  - it drops what the M5 haze score calls black or blown out;
+  - it lays the rest out in numbered 6×6 sheets;
+  - a person lists the tiles to reject in `rejects.txt`: any object other than clips and suture
+    thread, and any frame where tissue is not clearly visible;
+  - `collect` writes the reviewed list (accepted frames per split, reviewer, census hash), which
+    is the input of the compositing stage.
+
+  If about 40 % of the frames pass, every 3rd frame leaves roughly 1 100 train backgrounds.
 - **Splits:** synthetic training uses the CholecT50 **train** videos and synthetic validation
   uses its **val** videos. CholecT50 **test** videos stay untouched: they are held out for the
   other benchmarks.
