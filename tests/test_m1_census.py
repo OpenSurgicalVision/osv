@@ -78,8 +78,11 @@ def test_labels_are_read_from_the_archive_and_from_a_folder(tmp_path):
     for video, labels in LABELS.items():
         (folder / f"{video}.json").write_text(json.dumps(labels))
     assert set(M.read_labels(archive)) == set(M.read_labels(tmp_path / "extracted")) == set(SPLIT)
-    with pytest.raises(FileNotFoundError):
-        M.read_labels(tmp_path / "empty_dir_does_not_matter")
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        M.read_labels(tmp_path / "missing")
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(FileNotFoundError, match="no labels"):
+        M.read_labels(tmp_path / "empty")
 
 
 def test_only_cholecseg8k_videos_absent_from_cholect50_are_admissible_for_test():

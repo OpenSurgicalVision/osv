@@ -53,6 +53,8 @@ SEG_VIDEO = re.compile(r"^video(\d+)$")
 def read_labels(path: str | Path) -> dict[str, dict[str, Any]]:
     """video -> parsed labels/VIDnn.json, from the CholecT50 archive or its extracted folder."""
     path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"CholecT50 source does not exist: {path} (an absolute path?)")
     found: dict[str, dict[str, Any]] = {}
     if path.is_file():
         with zipfile.ZipFile(path) as archive:
@@ -192,10 +194,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("set CHOLECT50_RAW_ZIP / CHOLECT50_DIR or pass --cholect50")
     split_of = C.official_split(C.load_manifest())
     report: dict[str, Any] = {"cholect50": census(read_labels(args.cholect50), split_of)}
-    if args.cholecseg8k:
-        report["cholecseg8k"] = admissible_test_videos(_seg_frames(args.cholecseg8k), split_of)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, indent=2) + "\n")
+    args.out.write_text(json.dumps(report, indent=2) + "\n")  # kept if CholecSeg8k fails
+    if args.cholecseg8k:
+        if not Path(args.cholecseg8k).exists():
+            raise SystemExit(f"[m1-census] CholecSeg8k source does not exist: {args.cholecseg8k}")
+        report["cholecseg8k"] = admissible_test_videos(_seg_frames(args.cholecseg8k), split_of)
+        args.out.write_text(json.dumps(report, indent=2) + "\n")
 
     for split, counts in report["cholect50"]["by_split"].items():
         share = counts["tool_free"] / max(counts["frames"], 1)
