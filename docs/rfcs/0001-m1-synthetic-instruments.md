@@ -148,7 +148,8 @@ split.
   - the same metrics per test video.
 - **Uncertainty.** A 95 % interval for the difference Δ = IoU(A) − IoU(B), by bootstrap over
   test videos (the frames of one video are not independent) and seeds.
-- **Non-inferiority margin δ = 2.0 IoU points**, fixed here before any run.
+- **Non-inferiority margin δ = 2.0 IoU points**, fixed here before any run and confirmed by the
+  project owner on 2026-10-22. It may not change once a run has started.
   - **H1 supported:** the lower bound of Δ's interval is above −δ.
   - **H1 rejected:** the upper bound of Δ's interval is below −δ.
   - **Inconclusive:** anything else. With about 7 test videos the interval will be wide, and an
@@ -166,10 +167,11 @@ split.
 - **Training.** The estimate is at most 2 GPU-hours per run on an A40, about 36 GPU-hours for
   all 18 runs (about $21 at $0.59/h). That nearly fills one week's R-24 quota, so the runs are
   planned over two weeks.
-- **Runpod scope (ADR 0009).** Only CholecT50 and data built from it are admitted on Runpod.
-  **CholecSeg8k is not.** Arms B and C, and the test evaluation of every arm, need either an
-  owner decision extending ADR 0009 to CholecSeg8k (public, de-identified, CC BY-NC-SA 4.0 like
-  CholecT50), or a different place to run.
+- **Runpod scope (ADR 0009).** On 2026-10-22 the owner extended ADR 0009 decision 1 to
+  CholecSeg8k and the data built from it (osv-infra ADR 0009, decision 1a): Secure Cloud in the
+  EU allowlist only, the same terms as CholecT50. All arms and the test evaluation can run on a
+  Runpod pod. Before the first CholecSeg8k session the owner checks that CholecSeg8k's and
+  Cholec80's terms allow processing at a cloud provider (data card open item).
 
 ### 5. Milestones
 
