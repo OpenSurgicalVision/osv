@@ -57,6 +57,7 @@ from osv.train.desmoke import (
     _flatten,
     evaluate,
     evaluate_real_smoke,
+    preview_hook,
     random_crop,
     split_videos,
 )
@@ -348,6 +349,9 @@ def train(
             ckpt_path, nets=nets, optimizers=optimizers, schedulers=schedulers, config=config
         )
         print(f"[osv.train] resumed from {ckpt_path} at epoch {start_epoch}")
+    preview = preview_hook(config, processed, out_dir, device)
+    if start_epoch == 0:
+        preview(nets["generator"], None)
     pools = None
     if entry.training == "unpaired_gan":
         pools = {
@@ -419,6 +423,7 @@ def train(
                 f"{entry_row['psnr']:.2f} dB (input {entry_row['psnr_input']:.2f}) "
                 f"SSIM {entry_row['ssim']:.4f} | {entry_row['seconds']}s"
             )
+            preview(nets["generator"], epoch)
             save_checkpoint(
                 ckpt_path,
                 nets=nets,

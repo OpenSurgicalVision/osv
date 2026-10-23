@@ -46,6 +46,7 @@ from osv.datasets.cholect50 import haze_score
 from osv.datasets.desmoke import DEFAULT_PROCESSED_DIR, SyntheticSmokePairs, confirmed_smoke
 from osv.eval import restoration as R
 from osv.models.desmoke import TASK, build_desmoke_model
+from osv.train import previews as P
 from osv.train.segmentation import RunRecorder, pin_seed, preflight_quota, run_name
 
 DISCLAIMER = "RESEARCH USE ONLY - NOT FOR CLINICAL USE"
@@ -71,9 +72,23 @@ class DesmokeConfig:
     processed_dir: str = str(DEFAULT_PROCESSED_DIR)
     data_config_sha256: str = ""
     experiment: str = "osv-m5-desmoke-baseline"
+    # Per-epoch preview sheets (osv.train.previews): looking, not training, so not hashed.
+    preview_count: int = 8
+    preview_every: int = 1
+    preview_scale: float = 0.5
     extra: dict[str, Any] = field(default_factory=dict)
 
-    HASH_SKIP = frozenset({"epochs", "extra", "num_workers", "processed_dir"})
+    HASH_SKIP = frozenset(
+        {
+            "epochs",
+            "extra",
+            "num_workers",
+            "processed_dir",
+            "preview_count",
+            "preview_every",
+            "preview_scale",
+        }
+    )
 
     def hash(self) -> str:
         """Like TrainConfig.hash: epochs, workers and paths do not change the experiment."""
@@ -215,6 +230,31 @@ def load_checkpoint(path: Path, *, model, optimizer, config: DesmokeConfig, sche
     return int(state["epoch"]) + 1
 
 
+def preview_hook(config: DesmokeConfig, processed: Path, out_dir: Path, device: str) -> Any:
+    """`hook(model, epoch)` writing preview sheets after the epochs `preview_every` picks;
+    `epoch=None` is the untrained model. A no-op when `preview_count` is 0."""
+    if config.preview_count <= 0:
+        return lambda model, epoch: None
+    previews = P.PreviewSet(processed, count=config.preview_count, seed=config.seed)
+    folder = out_dir / "previews"
+    title = f"{run_name(config)} - M5 previews"
+
+    def hook(model: nn.Module, epoch: int | None) -> None:
+        last = epoch is not None and epoch == config.epochs - 1
+        if epoch is None or last or (epoch + 1) % max(config.preview_every, 1) == 0:
+            P.save(
+                model,
+                previews,
+                folder,
+                epoch=epoch,
+                device=device,
+                title=title,
+                scale=config.preview_scale,
+            )
+
+    return hook
+
+
 def _flatten(report: dict[str, Any], prefix: str) -> dict[str, float]:
     return {
         f"{prefix}{group}_{metric}": values["mean"]
@@ -266,6 +306,9 @@ def train(
             ckpt_path, model=model, optimizer=optimizer, config=config, scheduler=scheduler
         )
         print(f"[osv.train] resumed from {ckpt_path} at epoch {start_epoch}")
+    preview = preview_hook(config, processed, out_dir, device)
+    if start_epoch == 0:
+        preview(model, None)
 
     loader = DataLoader(
         train_ds,
@@ -331,6 +374,7 @@ def train(
                 f"{config.eval_split} PSNR {entry['psnr']:.2f} dB (input {entry['psnr_input']:.2f}) "
                 f"SSIM {entry['ssim']:.4f} | {entry['seconds']}s"
             )
+            preview(model, epoch)
             save_checkpoint(
                 ckpt_path,
                 model=model,
@@ -393,6 +437,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--eval-limit", type=int, default=None)
     p.add_argument("--eval-split", default="val", choices=["val", "test"])
     p.add_argument("--num-workers", type=int, default=DesmokeConfig.num_workers)
+    p.add_argument(
+        "--preview-count",
+        type=int,
+        default=DesmokeConfig.preview_count,
+        help="frames per preview sheet (train, val, real); 0 turns previews off",
+    )
+    p.add_argument("--preview-every", type=int, default=DesmokeConfig.preview_every)
+    p.add_argument(
+        "--preview-scale", type=float, default=DesmokeConfig.preview_scale, help="tile size"
+    )
     p.add_argument("--no-amp", action="store_true")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--skip-quota-check", action="store_true", help="CPU runs only (R-24).")
@@ -416,6 +470,9 @@ def main(argv: list[str] | None = None) -> int:
         "eval_split": args.eval_split,
         "num_workers": args.num_workers,
         "processed_dir": args.data,
+        "preview_count": args.preview_count,
+        "preview_every": args.preview_every,
+        "preview_scale": args.preview_scale,
     }
     if args.base_channels is not None:
         values["base_channels"] = args.base_channels
