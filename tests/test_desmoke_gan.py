@@ -22,6 +22,8 @@ from osv.train import desmoke_gan as TG
 def test_the_registry_is_the_search_space():
     assert {n for n, a in REGISTRY.items() if a.task == "M5 desmoking"} == {
         "residual_unet",
+        "nafnet",
+        "dehazeformer_s",
         "pix2pix",
         "srgan",
         "cyclegan",
