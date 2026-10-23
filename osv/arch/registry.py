@@ -38,6 +38,20 @@ REGISTRY: dict[str, Architecture] = {
             "Ronneberger et al., U-Net, MICCAI 2015 (residual output, L1 + SSIM)",
         ),
         Architecture(
+            "nafnet",
+            "M5 desmoking",
+            "supervised",
+            "Chen et al., Simple Baselines for Image Restoration, ECCV 2022 (SIDD config, "
+            "width 32; residual output and alpha head as residual_unet; L1 + SSIM)",
+        ),
+        Architecture(
+            "dehazeformer_s",
+            "M5 desmoking",
+            "supervised",
+            "Song et al., Vision Transformers for Single Image Dehazing, IEEE TIP 2023 "
+            "(DehazeFormer-S; soft reconstruction K*I-B+I, alpha head; L1 + SSIM)",
+        ),
+        Architecture(
             "pix2pix",
             "M5 desmoking",
             "paired_gan",

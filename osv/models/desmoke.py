@@ -77,12 +77,21 @@ class ResidualUNet(nn.Module):
 
 
 def build_desmoke_model(*, architecture: str = "residual_unet", base: int = 32) -> nn.Module:
+    """A supervised M5 model by registry name; `base` is the U-Net base width / NAFNet width."""
     entry = lookup(architecture, task=TASK)
     if entry.training != "supervised":
         raise ValueError(
             f"{architecture!r} is a GAN: osv.models.desmoke_gan.build_gan builds it and "
             "osv.train.desmoke_gan trains it"
         )
+    if architecture == "nafnet":
+        from osv.models.restoration_nets import NAFNet
+
+        return NAFNet(width=base)
+    if architecture == "dehazeformer_s":
+        from osv.models.restoration_nets import DehazeFormer
+
+        return DehazeFormer()  # fixed published dims; `base` does not apply
     return ResidualUNet(base=base)
 
 
