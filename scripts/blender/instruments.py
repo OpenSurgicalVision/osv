@@ -88,6 +88,9 @@ def reset_scene(samples: int) -> bpy.types.Scene:
         use_gpu()  # factory settings reset the preferences, so after every reset
     scene.cycles.samples = samples
     scene.cycles.use_denoising = True
+    # OpenImageDenoise stays on the CPU unless asked, even with a GPU device: on an A40 a
+    # sample took 5.2 s with it on the CPU and 1.8 s with it on the GPU.
+    scene.cycles.denoising_use_gpu = DEVICE == "GPU"
     scene.render.resolution_x, scene.render.resolution_y = WIDTH, HEIGHT
     scene.render.resolution_percentage = 100
     scene.render.film_transparent = True
@@ -442,6 +445,7 @@ def render_sample(index: int, seed: int, out: Path, *, samples: int, preview: bo
         "hfov_deg": HFOV_DEG,
         "light_w": light_w,
         "samples": samples,
+        "device": DEVICE,  # OIDN runs on the same device, so outputs differ slightly
         "blender": bpy.app.version_string,
         "instances": record,
         "pixels": {name: int((classes == value).sum()) for name, value in CLASSES.items()},
