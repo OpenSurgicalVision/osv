@@ -5,7 +5,7 @@ RESEARCH USE ONLY - NOT FOR CLINICAL USE.
 Runs inside Blender's Python (Blender 4.2, or the `bpy==4.2.0` wheel on Python 3.11):
 
     python scripts/blender/instruments.py --out /outside/the/repo/m1_instruments \\
-        --count 200 --seed 1337
+        --count 200 --seed 1337 [--device gpu]
     blender --background --python scripts/blender/instruments.py -- --out ... --count 200
 
 The instruments are modelled here from primitives, so the geometry is the project's
@@ -59,11 +59,33 @@ MM = 0.001
 # --- scene -------------------------------------------------------------------------------
 
 
+DEVICE = "CPU"  # set by --device; "GPU" renders with OptiX or CUDA when Blender finds one
+
+
+def use_gpu() -> str:
+    """Switch Cycles to the GPU: OptiX if available, else CUDA. Returns the backend."""
+    preferences = bpy.context.preferences.addons["cycles"].preferences
+    for backend in ("OPTIX", "CUDA"):
+        try:
+            preferences.compute_device_type = backend
+        except TypeError:
+            continue
+        preferences.get_devices()
+        devices = [d for d in preferences.devices if d.type == backend]
+        if devices:
+            for device in preferences.devices:
+                device.use = device.type == backend
+            return backend
+    raise SystemExit("[m1-instruments] --device gpu: Cycles found no OptiX or CUDA device")
+
+
 def reset_scene(samples: int) -> bpy.types.Scene:
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
-    scene.cycles.device = "CPU"
+    scene.cycles.device = DEVICE
+    if DEVICE == "GPU":
+        use_gpu()  # factory settings reset the preferences, so after every reset
     scene.cycles.samples = samples
     scene.cycles.use_denoising = True
     scene.render.resolution_x, scene.render.resolution_y = WIDTH, HEIGHT
@@ -440,9 +462,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--start", type=int, default=0, help="first sample index")
     parser.add_argument("--samples", type=int, default=64, help="Cycles samples per pixel")
+    parser.add_argument("--device", choices=["cpu", "gpu"], default="cpu")
     parser.add_argument("--preview", action="store_true", help="also write placeholder composites")
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
+    global DEVICE
+    if args.device == "gpu":
+        DEVICE = "GPU"
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        print(f"[m1-instruments] rendering on the GPU with {use_gpu()}")
     for index in range(args.start, args.start + args.count):
         meta = render_sample(index, args.seed, args.out, samples=args.samples, preview=args.preview)
         print(f"[m1-instruments] {meta['id']}: {[i['class'] for i in meta['instances']]}")
