@@ -75,6 +75,16 @@ per video, per official split and per phase, and as runs of consecutive frames.
     is the input of the compositing stage.
 
   If about 40 % of the frames pass, every 3rd frame leaves roughly 1 100 train backgrounds.
+- **Review result (2026-10-24).** Of 3 427 candidates (every 3rd frame of each run, train and
+  val), 743 were black or blown out and 2 684 were reviewed. The reviewer rejected 1 878 (70 %).
+  **717 train and 89 val backgrounds** remain.
+- **Deviation from the threshold above, decided before any run (owner, 2026-10-24).** 717 is
+  below the 1 000 set as the floor for variety. The owner chose to go ahead with 717 rather than
+  inpaint instruments out of ordinary frames:
+  - every training composite pairs a background with an instrument layer and augmentation drawn
+    afresh each epoch;
+  - the risk is that the model learns the backgrounds themselves;
+  - if arm A loses, this is one of the explanations the report must weigh.
 - **Splits:** synthetic training uses the CholecT50 **train** videos and synthetic validation
   uses its **val** videos. CholecT50 **test** videos stay untouched: they are held out for the
   other benchmarks.
