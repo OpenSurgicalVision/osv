@@ -170,6 +170,16 @@ split.
 - **Real fractions.** The fractions in C are of frames, sampled uniformly within every
   real-train video. The list of frames is fixed per seed and recorded in MLflow.
 - **Seeds.** Three seeds per arm (R-25), 18 runs in total.
+- **Training budget (`osv/train/m1.py`, fixed before any run).**
+  - Every arm uses the same settings: AdamW (lr 1e-4, weight decay 1e-4), cosine decay over
+    20 epochs, batch 8, unweighted cross-entropy plus 0.4 × the auxiliary head, and
+    mixed precision.
+  - Arm A draws as many fresh composites per epoch as real-train has frames, so A and B take
+    the same number of optimiser steps. This replaces the planned 10 000 composites per epoch,
+    which would have given A about 2.4 times B's steps.
+  - Real-train frames get random horizontal and vertical flips. The composites already carry
+    flips.
+  - The checkpoint with the best val binary IoU is selected.
 
 ### 3. Metrics and the decision rule for H1
 
