@@ -182,6 +182,8 @@ def test_arm_c_fine_tunes_arm_a_of_the_same_seed_only(data, trained, tmp_path):
         config(data, arm="C", real_fraction=0.5, init=str(a_best), backbone_weights=""), tmp_path
     )
     assert c["config"]["init_sha256"] == T.sha256_file(a_best)
+    frames = (tmp_path / T.M1Config(**c["config"]).name / "real_train_frames.txt").read_text()
+    assert len(frames.split()) == 4  # the frames C trained on: train_limit=4
     assert T.M1Config(**c["config"]).name.startswith("m1-C50-s1-")
     assert (
         torch.load(tmp_path / T.M1Config(**c["config"]).name / "best.pt", weights_only=False)[

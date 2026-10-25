@@ -70,6 +70,27 @@ def test_runs_are_copied_once_with_history_times_and_one_checkpoint(tmp_path, mo
     assert len(client.search_runs([experiment.experiment_id])) == 2
 
 
+def test_m1_run_folders_and_test_reports_are_found_without_last_pt(tmp_path):
+    run = tmp_path / "runs" / "m1" / "m1-C25-s1-abc123"
+    run.mkdir(parents=True)
+    for name in ("report.json", "best.pt", "last.pt", "real_train_frames.txt"):
+        (run / name).write_text("x")
+    (tmp_path / "runs" / "m1" / "test").mkdir()
+    (tmp_path / "runs" / "m1" / "test" / "m1-C25-s1-abc123.json").write_text("{}")
+    (tmp_path / "runs" / "m1" / "m1-A-s1-other").mkdir()
+    (tmp_path / "runs" / "m1" / "m1-A-s1-other" / "best.pt").write_text("x")
+    found = {
+        p.relative_to(tmp_path / "runs" / "m1").as_posix()
+        for p in I.find_outputs(tmp_path, "abc123")
+    }
+    assert found == {
+        "m1-C25-s1-abc123/report.json",
+        "m1-C25-s1-abc123/best.pt",
+        "m1-C25-s1-abc123/real_train_frames.txt",
+        "test/m1-C25-s1-abc123.json",
+    }
+
+
 def test_ambiguous_outputs_and_same_store_are_refused(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source, _, _ = pod_store(tmp_path)

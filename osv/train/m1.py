@@ -389,6 +389,9 @@ def train(
         if config.arm != "A":
             frames = "\n".join(r["file_name"] for r in train_ds.dataset.images)  # type: ignore[attr-defined]
             recorder.log_text(frames, "real_train_frames.txt")
+            # Also next to the checkpoint: the pod's MLflow artifacts are not imported.
+            run_dir.mkdir(parents=True, exist_ok=True)
+            (run_dir / "real_train_frames.txt").write_text(frames + "\n")
 
         for epoch in range(start, config.epochs):
             train_ds.set_epoch(epoch)  # type: ignore[attr-defined]
