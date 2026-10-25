@@ -170,6 +170,14 @@ def test_arm_a_selects_on_synthetic_val_and_logs_real_val_for_information(data, 
     assert len(report["config"]["data_sha256"]) == 64
     with pytest.raises(SystemExit, match="no smoke layers"):
         run(config(data, smoke=True), tmp_path / "smoke")
+    layers = tmp_path / "smoke_m5" / "smoke" / "train"
+    layers.mkdir(parents=True)
+    Image.fromarray(np.zeros((H, W, 4), np.uint8), "RGBA").save(layers / "ok.png")
+    whole = (layers / "ok.png").read_bytes()
+    (layers / "cut.png").write_bytes(whole[: len(whole) // 2])  # an interrupted copy
+    smoky = config(data, smoke=True, smoke_dir=str(tmp_path / "smoke_m5"))
+    with pytest.raises(SystemExit, match="1 smoke layers do not decode"):
+        run(smoky, tmp_path / "smoke")
 
 
 def test_arm_c_fine_tunes_arm_a_of_the_same_seed_only(data, trained, tmp_path):
@@ -178,6 +186,11 @@ def test_arm_c_fine_tunes_arm_a_of_the_same_seed_only(data, trained, tmp_path):
         run(config(data, arm="C", seed=2, real_fraction=0.5, init=str(a_best)), tmp_path)
     with pytest.raises(SystemExit, match="not arm A's selected checkpoint"):
         run(config(data, arm="C", real_fraction=0.5, init=str(b_best)), tmp_path)
+    unfinished = tmp_path / "m1-A-s1-unfinished"
+    unfinished.mkdir()
+    (unfinished / "best.pt").write_bytes(a_best.read_bytes())  # best.pt, but no report.json yet
+    with pytest.raises(SystemExit, match="has not finished"):
+        run(config(data, arm="C", real_fraction=0.5, init=str(unfinished / "best.pt")), tmp_path)
     c = run(
         config(data, arm="C", real_fraction=0.5, init=str(a_best), backbone_weights=""), tmp_path
     )

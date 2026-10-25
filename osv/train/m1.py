@@ -200,6 +200,12 @@ def datasets(config: M1Config) -> dict[str, Any]:
         )
         if config.smoke and not train.smoke:  # type: ignore[attr-defined]
             raise SystemExit(f"[osv.train.m1] no smoke layers under {config.smoke_dir}/smoke")
+        broken = unreadable(train.smoke)  # type: ignore[attr-defined]
+        if broken:
+            raise SystemExit(
+                f"[osv.train.m1] {len(broken)} smoke layers do not decode (an interrupted copy?), "
+                f"e.g. {broken[:3]}: re-copy {config.smoke_dir}/smoke before training"
+            )
         selection = D.SyntheticInstruments("val", root=config.synth_dir, limit=config.eval_limit)
         evals = {"val": selection, "info_real_val": real_val}
     else:
@@ -249,14 +255,38 @@ def tracker_metrics(report: dict[str, Any], prefix: str) -> dict[str, float]:
     return metrics
 
 
+def unreadable(paths: list[Path]) -> list[str]:
+    """The images that do not decode to the end: a training worker would die on them later."""
+    from PIL import Image
+
+    broken = []
+    for path in paths:
+        try:
+            with Image.open(path) as image:
+                image.load()
+        except (OSError, SyntaxError, ValueError):
+            broken.append(str(path))
+    return broken
+
+
 def initial_state(config: M1Config) -> dict[str, Any] | None:
-    """Arm C: arm A's selected checkpoint of the same seed, checked, with its hash recorded."""
+    """Arm C: the selected checkpoint of a finished arm A run of the same seed, hash recorded."""
     if config.arm != "C":
         return None
     state = torch.load(config.init, map_location="cpu", weights_only=False)
     parent = state.get("config", {})
     if parent.get("arm") != "A" or not state.get("selected_on"):
         raise SystemExit(f"[osv.train.m1] {config.init} is not arm A's selected checkpoint")
+    # best.pt exists from epoch 0 on; only report.json says the run went through all epochs.
+    report = Path(config.init).parent / "report.json"
+    finished = (
+        report.is_file() and json.loads(report.read_text())["config_hash"] == state["config_hash"]
+    )
+    if not finished:
+        raise SystemExit(
+            f"[osv.train.m1] arm A run {Path(config.init).parent.name} has not finished "
+            "(no report.json): arm C fine-tunes arm A's final selection only"
+        )
     if parent.get("seed") != config.seed:
         raise SystemExit(
             f"[osv.train.m1] arm C seed {config.seed} must fine-tune arm A seed {config.seed}, "
