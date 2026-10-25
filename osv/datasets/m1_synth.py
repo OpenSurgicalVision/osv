@@ -13,7 +13,8 @@ the Blender renders of `scripts/blender/instruments.py`, and optionally the M5 b
 What it writes under --out:
 
 * ``backgrounds/<split>/<VIDnn_NNNNNN>.png`` - the accepted tool-free frames of the
-  CholecT50 train and val videos, nothing else;
+  CholecT50 train and val videos, nothing else, resized to the renders' size where a
+  video was recorded at another resolution (as `osv.datasets.smoke_m5` does for M5);
 * ``renders/<split>/<id>_{rgba,class}.png`` and ``<id>.json`` - every 10th render
   (by index) goes to val, the rest to train, so no instrument layer is in both;
 * ``pairs/val/<pair_id>.png`` and ``<pair_id>_label.png`` - fixed val composites (val
@@ -42,6 +43,7 @@ import numpy as np
 from PIL import Image
 
 from osv.augment import instruments as I
+from osv.datasets.smoke_m5 import fit
 
 SPLITS = ("train", "val")
 VAL_EVERY = 10
@@ -141,6 +143,14 @@ def contact_sheet(root: Path, count: int = 12, scale: float = 0.5) -> Image.Imag
     return Image.fromarray(np.concatenate(rows, axis=0))
 
 
+def copy_render(source: Path, target: Path) -> bool:
+    """Copy unless an earlier run already did: on a network volume 60 000 copies take minutes."""
+    if target.is_file() and target.stat().st_size == source.stat().st_size:
+        return False
+    shutil.copyfile(source, target)
+    return True
+
+
 def build(
     backgrounds_json: Path,
     renders: Path,
@@ -157,21 +167,26 @@ def build(
     missing = [f for split in SPLITS for f in accepted[split] if f not in frames]
     if missing:
         raise ValueError(f"{len(missing)} accepted backgrounds are not in CholecT50: {missing[:3]}")
+    ids = render_ids(renders)
+    height, width = read_gray(renders / f"{ids[0]}_class.png").shape
     out.mkdir(parents=True, exist_ok=True)
+    resized: dict[str, list[int]] = {}
     for split in SPLITS:
         folder = out / "backgrounds" / split
         folder.mkdir(parents=True, exist_ok=True)
         for frame_id in accepted[split]:
-            Image.fromarray(source.read(frames[frame_id])).save(folder / f"{frame_id}.png")
+            rgb = source.read(frames[frame_id])
+            if rgb.shape[:2] != (height, width):
+                resized[frame_id] = [rgb.shape[1], rgb.shape[0]]
+            Image.fromarray(fit(rgb, (width, height))).save(folder / f"{frame_id}.png")
 
-    ids = render_ids(renders)
     split_renders = render_split(ids)
     for split, names in split_renders.items():
         folder = out / "renders" / split
         folder.mkdir(parents=True, exist_ok=True)
         for name in names:
             for suffix in ("_rgba.png", "_class.png", ".json"):
-                shutil.copyfile(renders / f"{name}{suffix}", folder / f"{name}{suffix}")
+                copy_render(renders / f"{name}{suffix}", folder / f"{name}{suffix}")
 
     smoke = smoke_layers(smoke_dir, "val")
     pairs_dir = out / "pairs" / "val"
@@ -206,6 +221,8 @@ def build(
             "smoke_dir": str(smoke_dir) if smoke_dir else None,
             "seed": seed,
         },
+        "frame_size": [width, height],
+        "backgrounds_resized_from": resized,
         "backgrounds": {split: list(accepted[split]) for split in SPLITS},
         "renders": split_renders,
         "pairs": pairs,
@@ -213,6 +230,7 @@ def build(
             **{f"backgrounds_{s}": len(accepted[s]) for s in SPLITS},
             **{f"renders_{s}": len(split_renders[s]) for s in SPLITS},
             "val_pairs": len(pairs),
+            "backgrounds_resized": len(resized),
         },
     }
     (out / "index.json").write_text(json.dumps(index, indent=2) + "\n")
