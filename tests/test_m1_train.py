@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import zipfile
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 import torch
+import yaml
 from PIL import Image
 from test_m1_data import H, W, background, png, render
 
@@ -189,20 +191,47 @@ def test_arm_c_fine_tunes_arm_a_of_the_same_seed_only(data, trained, tmp_path):
     )
 
 
+def reviewed(tmp_path, **lists) -> Path:
+    path = tmp_path / "m1_test_review.yaml"
+    doc = {"status": "REVIEWED", "reviewer": "R", "excluded_clips": [], "excluded_frames": []}
+    path.write_text(yaml.safe_dump(doc | lists))
+    return path
+
+
 def test_test_touches_once_and_is_counted(trained, tmp_path):
     best = trained["best"]["B"]
     ledger = tmp_path / "touches.jsonl"
     args = {"ledger": ledger, "out": tmp_path / "test", "device": "cpu", "batch_size": 2,
             "num_workers": 0, "processed_dir": None, "source": None}  # fmt: skip
+    with pytest.raises(SystemExit, match="PENDING"):  # the repo's manifest, before the review
+        E.test(best, **args)
+    assert not ledger.exists()
+    args["review_path"] = reviewed(tmp_path, excluded_frames=["video09_00000/frame_2"])
     result = E.test(best, **args)
     assert result["touch_count"] == 1 and list(result["per_video"]) == ["video09"]
-    assert result["per_video"]["video09"]["frames"] == 3
+    assert result["per_video"]["video09"]["frames"] == 2
+    assert result["touch"]["excluded_frames"] == 1 and len(result["touch"]["review_sha256"]) == 64
     assert 0 <= result["test"]["binary_iou"] <= 1
     with pytest.raises(SystemExit, match="once"):
         E.test(best, **args)
     assert len(ledger.read_text().splitlines()) == 1
     with pytest.raises(SystemExit, match="not a selected checkpoint"):
         E.test(best.parent / "last.pt", **args)
+
+
+def test_review_sheets_show_every_test_clip_and_names_must_exist(data, tmp_path):
+    (sheet,) = E.review(str(data["processed"]), str(data["archive"]), tmp_path, scale=1.0)
+    assert sheet.name == "test_review_video09.png"
+    with Image.open(sheet) as image:
+        assert image.size == (6 * W, 28 + H)  # one clip: 3 frames x (image | label)
+    listing = json.loads((tmp_path / "test_review.json").read_text())
+    assert listing["clips"] == {"video09_00000": 3}
+    images = [
+        {"file_name": f"CholecSeg8k/video09/video09_00000/frame_{n:05d}_endo.png"} for n in range(3)
+    ]
+    assert len(E.apply_review(images, {"excluded_clips": ["video09_00000"]})) == 0
+    with pytest.raises(SystemExit, match="not in the test"):
+        E.apply_review(images, {"excluded_clips": ["video09_99999"]})
 
 
 def test_boundary_f1_tolerates_three_pixels():
