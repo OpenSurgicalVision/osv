@@ -17,9 +17,12 @@ and end times, which the quota gate turns into GPU-hours.
   target is skipped, so re-running after a partial import is safe.
 * Unfinished runs (status RUNNING or SCHEDULED) are not copied: half a run would be
   counted as a finished one.
-* `--outputs` attaches `report_<config_hash>.json` and `ckpt_<config_hash>.pt` found
-  under that folder to the latest run with that config_hash (a resumed experiment is
-  several runs sharing one checkpoint), so the checkpoint is uploaded once.
+* `--outputs` attaches the outputs found under that folder to the latest run with their
+  config_hash (a resumed experiment is several runs sharing one checkpoint), so the
+  checkpoint is uploaded once: M5's `report_<config_hash>.json` and `ckpt_<config_hash>.pt`,
+  and M1's run folder `<name>-<config_hash>/` (`report.json`, the selected `best.pt`, the
+  real-train frame list) with its test report `<name>-<config_hash>.json`. `last.pt` stays
+  behind: it only resumes training on the pod.
 """
 
 from __future__ import annotations
@@ -33,7 +36,14 @@ from typing import Any
 SOURCE_TAG = "osv.import.source_run_id"
 UNFINISHED = {"RUNNING", "SCHEDULED"}
 BATCH = 900  # MLflow accepts at most 1000 entities per log_batch
-OUTPUT_PATTERNS = ("report_{}.json", "ckpt_{}.pt")
+OUTPUT_PATTERNS = (
+    "report_{}.json",
+    "ckpt_{}.pt",
+    "*-{}/report.json",
+    "*-{}/best.pt",
+    "*-{}/real_train_frames.txt",
+    "*-{}.json",
+)
 
 
 def _client(uri: str):
