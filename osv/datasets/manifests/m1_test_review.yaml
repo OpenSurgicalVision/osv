@@ -1,0 +1,14 @@
+# RFC 0001 (M1), section 1, open question: CholecSeg8k labels two instrument classes
+# only. Test frames that show another instrument (clipper, irrigator, scissors, ...)
+# have no class for it, and it may be labelled as background or as tissue. A person looks
+# at every sheet of `python -m osv.eval.m1 review` and lists here what to leave out of
+# the test; `osv.eval.m1 test` refuses to run until status is REVIEWED.
+#
+# excluded_clips: clip ids as on the sheets, e.g. video09_00160 (all its frames)
+# excluded_frames: single frames, e.g. video09_00160/frame_175
+status: PENDING
+reviewer: null
+date: null
+excluded_clips: []
+excluded_frames: []
+notes: ""

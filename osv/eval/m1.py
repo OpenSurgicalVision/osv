@@ -2,13 +2,21 @@
 
 RESEARCH USE ONLY - NOT FOR CLINICAL USE.
 
-Two commands, both run by a person after training:
+Three commands, all run by a person:
 
+* ``review`` (before any test touch) draws the test masks for a person to check what
+  RFC 0001 leaves open: how instruments that have no class of their own (clipper,
+  irrigator, scissors) are labelled. CholecSeg8k comes in clips of consecutive frames, so
+  every clip gets a row with its first, middle and last frame, each as image | label
+  (grasper cyan, L-hook yellow, ignored magenta). The person lists the clips or frames
+  that show such an instrument in `osv/datasets/manifests/m1_test_review.yaml` and sets
+  it to REVIEWED in a PR. Looking at labels is not a test touch: no model is involved.
 * ``test`` scores one **selected** checkpoint (``best.pt`` of `osv.train.m1`) on the
   held-out CholecSeg8k test videos - the ones absent from CholecT50 - and writes a
   report with per-video counts. Every call appends to a touch ledger, and a checkpoint
   already in the ledger is refused: each arm's final checkpoint touches the test videos
-  exactly once (R-25). The ledger's line count is the counter to report.
+  exactly once (R-25). The ledger's line count is the counter to report. It refuses to
+  run until the review manifest is REVIEWED, and leaves out what the review excluded.
 * ``decide`` reads the test reports of arms A and B (at least 3 seeds each, R-25) and
   applies the RFC's rule to Δ = IoU(A) - IoU(B), the binary instrument IoU in points:
   a 95 % percentile interval by bootstrap over test videos (paired between the arms)
@@ -21,6 +29,7 @@ Metrics per video (summed over frames, so dataset-level numbers are exact sums):
 binary instrument IoU, the 3x3 confusion matrix (per-class IoU and Dice for grasper and
 L-hook), and boundary F1 of the binary mask with a 3-pixel tolerance.
 
+    python -m osv.eval.m1 review --out ~/osv-runs/m1_test_review
     python -m osv.eval.m1 test --checkpoint runs/m1/<run>/best.pt --ledger runs/m1/test_touches.jsonl
     python -m osv.eval.m1 decide runs/m1/test/*.json
 """
@@ -28,7 +37,9 @@ L-hook), and boundary F1 of the binary mask with a 3-pixel tolerance.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 import sys
 import time
 from collections import defaultdict
@@ -37,6 +48,8 @@ from typing import Any
 
 import cv2
 import numpy as np
+import yaml
+from PIL import Image
 
 from osv.datasets import m1 as D
 from osv.eval import metrics as M
@@ -45,6 +58,102 @@ DISCLAIMER = "RESEARCH USE ONLY - NOT FOR CLINICAL USE"
 DELTA_POINTS = 2.0  # RFC 0001 section 3, confirmed by the owner 2026-10-22; never a flag
 MIN_SEEDS = 3
 BOUNDARY_TOLERANCE_PX = 3
+REVIEW_PATH = Path(__file__).resolve().parents[1] / "datasets" / "manifests" / "m1_test_review.yaml"
+IGNORED_COLOUR = (255, 0, 255)
+
+
+def clip_of(file_name: str) -> str:
+    """'CholecSeg8k/video09/video09_00160/frame_175_endo.png' -> 'video09_00160'."""
+    return Path(file_name).parent.name
+
+
+def frame_number(file_name: str) -> int:
+    match = re.search(r"frame_(\d+)_endo", file_name)
+    if not match:
+        raise ValueError(f"not a CholecSeg8k frame: {file_name}")
+    return int(match[1])
+
+
+def frame_key(file_name: str) -> str:
+    """'video09_00160/frame_175': how the review manifest names a single frame."""
+    return f"{clip_of(file_name)}/frame_{frame_number(file_name)}"
+
+
+def overlay(rgb: np.ndarray, label: np.ndarray) -> np.ndarray:
+    from osv.datasets.m1_synth import OVERLAY
+
+    out = rgb.astype(np.float32)
+    for value, colour in {**OVERLAY, M.IGNORE_INDEX: IGNORED_COLOUR}.items():
+        hit = label == value
+        out[hit] = out[hit] * 0.45 + np.array(colour, np.float32) * 0.55
+    return out.astype(np.uint8)
+
+
+def review(processed_dir: str, source: str | None, out: Path, scale: float = 0.5) -> list[Path]:
+    """One sheet per test video, a row per clip: first, middle and last frame."""
+    from osv.train import m1 as T
+
+    videos = T.real_split(processed_dir)["test"]
+    data = D.RealInstruments(videos, processed_dir=processed_dir, source=source)
+    clips: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    for index, record in enumerate(data.images):
+        clips[record["video_id"]][clip_of(record["file_name"])].append(index)
+    out.mkdir(parents=True, exist_ok=True)
+    sheets, listing = [], {}
+    for video in videos:
+        rows = []
+        for clip, indices in sorted(clips[video].items()):
+            indices.sort(key=lambda i: frame_number(data.images[i]["file_name"]))
+            picks = [indices[0], indices[len(indices) // 2], indices[-1]]
+            tiles = []
+            for i in picks:
+                rgb, label = data.raw_pair(i)
+                tiles += [rgb, overlay(rgb, label)]
+            row = np.concatenate(tiles, axis=1)
+            row = cv2.resize(row, (int(row.shape[1] * scale), int(row.shape[0] * scale)))
+            header = np.zeros((28, row.shape[1], 3), np.uint8)
+            numbers = [frame_number(data.images[i]["file_name"]) for i in picks]
+            text = f"{clip}   frames {numbers[0]} | {numbers[1]} | {numbers[2]}   ({len(indices)} in clip)"
+            cv2.putText(header, text, (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+            rows += [header, row]
+            listing[clip] = len(indices)
+        path = out / f"test_review_{video}.png"
+        Image.fromarray(np.concatenate(rows, axis=0)).save(path)
+        sheets.append(path)
+    (out / "test_review.json").write_text(
+        json.dumps({"disclaimer": DISCLAIMER, "videos": videos, "clips": listing}, indent=2) + "\n"
+    )
+    print(f"[osv.eval.m1] {len(listing)} clips of {len(videos)} test videos -> {out}")
+    return sheets
+
+
+def load_review(path: Path = REVIEW_PATH) -> dict[str, Any]:
+    doc = yaml.safe_load(path.read_text())
+    if doc.get("status") != "REVIEWED":
+        raise SystemExit(
+            f"[osv.eval.m1] {path.name} is {doc.get('status')!r}: a person reviews the test masks "
+            "for instruments with no class of their own (RFC 0001) before any test touch"
+        )
+    doc["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return doc
+
+
+def apply_review(images: list[dict[str, Any]], doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """The test frames minus the excluded clips and frames; a name that matches nothing fails."""
+    clips = set(doc.get("excluded_clips") or [])
+    frames = set(doc.get("excluded_frames") or [])
+    unknown = (clips - {clip_of(r["file_name"]) for r in images}) | (
+        frames - {frame_key(r["file_name"]) for r in images}
+    )
+    if unknown:
+        raise SystemExit(
+            f"[osv.eval.m1] the review names frames that are not in the test: {sorted(unknown)}"
+        )
+    return [
+        r
+        for r in images
+        if clip_of(r["file_name"]) not in clips and frame_key(r["file_name"]) not in frames
+    ]
 
 
 def boundary(mask: np.ndarray) -> np.ndarray:
@@ -118,12 +227,14 @@ def test(
     processed_dir: str | None,
     source: str | None,
     limit: int | None = None,
+    review_path: Path = REVIEW_PATH,
 ) -> dict[str, Any]:
     import torch
     from torch.utils.data import DataLoader
 
     from osv.train import m1 as T
 
+    reviewed = load_review(review_path)
     digest = T.sha256_file(checkpoint)
     previous = [t for t in touched(ledger) if t["checkpoint_sha256"] == digest]
     if previous:
@@ -140,6 +251,8 @@ def test(
     data = D.RealInstruments(
         videos, processed_dir=processed, source=source or config["source"] or None, limit=limit
     )
+    frames_before = len(data.images)
+    data.images = apply_review(data.images, reviewed)
 
     # The touch is counted before the first test frame is read, so a crash still counts.
     ledger.parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +265,9 @@ def test(
         "seed": config["seed"],
         "config_hash": state["config_hash"],
         "test_videos": videos,
+        "review_sha256": reviewed["sha256"],
+        "test_frames": len(data.images),
+        "excluded_frames": frames_before - len(data.images),
     }
     with ledger.open("a") as handle:
         handle.write(json.dumps(touch) + "\n")
@@ -295,6 +411,12 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--num-workers", type=int, default=8)
     t.add_argument("--processed-dir")
     t.add_argument("--source", help="CholecSeg8k zip (default: the training run's)")
+    t.add_argument("--review", type=Path, default=REVIEW_PATH)
+    r = commands.add_parser("review", help="sheets of the test masks, for a person to check")
+    r.add_argument("--out", type=Path, required=True, help="outside the repository")
+    r.add_argument("--processed-dir", default="data/processed/cholecseg8k")
+    r.add_argument("--source", help="CholecSeg8k zip (default CHOLECSEG8K_RAW_ZIP)")
+    r.add_argument("--scale", type=float, default=0.5)
     d = commands.add_parser("decide", help="the RFC 0001 decision rule over test reports")
     d.add_argument("reports", type=Path, nargs="+")
     d.add_argument("--reps", type=int, default=10_000)
@@ -310,7 +432,11 @@ def main(argv: list[str] | None = None) -> int:
             num_workers=args.num_workers,
             processed_dir=args.processed_dir,
             source=args.source,
+            review_path=args.review,
         )
+        return 0
+    if args.command == "review":
+        review(args.processed_dir, args.source, args.out, scale=args.scale)
         return 0
     result = decide([json.loads(p.read_text()) for p in args.reports], reps=args.reps)
     text = json.dumps(result, indent=2) + "\n"
@@ -324,4 +450,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["DELTA_POINTS", "boundary_counts", "decide", "test"]
+__all__ = [
+    "DELTA_POINTS",
+    "apply_review",
+    "boundary_counts",
+    "decide",
+    "load_review",
+    "review",
+    "test",
+]
