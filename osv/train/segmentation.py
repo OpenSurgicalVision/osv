@@ -203,6 +203,10 @@ class RunRecorder:
         if self.active:
             self._mlflow.log_metrics(metrics, step=step)
 
+    def log_text(self, text: str, artifact_file: str) -> None:
+        if self.active and self._mlflow is not None:
+            self._mlflow.log_text(text, artifact_file)
+
 
 def build_model(num_classes: int, *, architecture: str, pretrained: bool) -> nn.Module:
     from torchvision.models import segmentation as tvseg
