@@ -149,6 +149,11 @@ split.
   those pixels are labelled must be checked on the masks before the test set is frozen. If they
   are not consistently background, such frames are marked `ignore` using Cholec80's tool
   presence annotations, or excluded and listed.
+- **Review of the test masks (owner, 2026-10-25).** Every one of the 37 test clips (2 960
+  frames) was checked on its first, middle and last frame using `python -m osv.eval.m1 review`.
+  No instrument without its own class was seen, so nothing is excluded. The result is recorded
+  in `osv/datasets/manifests/m1_test_review.yaml`; `osv.eval.m1 test` runs only on a REVIEWED
+  manifest.
 
 ### 2. Model and training
 

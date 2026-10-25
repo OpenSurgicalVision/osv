@@ -203,8 +203,9 @@ def test_test_touches_once_and_is_counted(trained, tmp_path):
     ledger = tmp_path / "touches.jsonl"
     args = {"ledger": ledger, "out": tmp_path / "test", "device": "cpu", "batch_size": 2,
             "num_workers": 0, "processed_dir": None, "source": None}  # fmt: skip
-    with pytest.raises(SystemExit, match="PENDING"):  # the repo's manifest, before the review
-        E.test(best, **args)
+    pending = reviewed(tmp_path, status="PENDING")
+    with pytest.raises(SystemExit, match="PENDING"):
+        E.test(best, **args, review_path=pending)
     assert not ledger.exists()
     args["review_path"] = reviewed(tmp_path, excluded_frames=["video09_00000/frame_2"])
     result = E.test(best, **args)

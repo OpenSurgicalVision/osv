@@ -6,9 +6,12 @@
 #
 # excluded_clips: clip ids as on the sheets, e.g. video09_00160 (all its frames)
 # excluded_frames: single frames, e.g. video09_00160/frame_175
-status: PENDING
-reviewer: null
-date: null
+status: REVIEWED
+reviewer: AleksandrStef (project owner)
+date: 2026-10-25
 excluded_clips: []
 excluded_frames: []
-notes: ""
+notes: >-
+  All 37 test clips (2 960 frames of video09, 17, 20, 24, 28, 37, 55) were looked at on the
+  sheets of `osv.eval.m1 review`, by the first, middle and last frame of each clip. No
+  instrument without its own class was seen, so nothing is excluded.
