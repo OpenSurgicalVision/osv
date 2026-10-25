@@ -107,7 +107,10 @@ def synth(tmp_path):
         folder = source / "videos" / video
         folder.mkdir(parents=True)
         for index in range(4):
-            Image.fromarray(background(index)).save(folder / f"{index:06d}.png")
+            frame = background(index)
+            if (video, index) == ("VID08", 3):  # a video recorded at twice the resolution
+                frame = np.repeat(np.repeat(frame, 2, axis=0), 2, axis=1)
+            Image.fromarray(frame).save(folder / f"{index:06d}.png")
             accepted[split].append(f"{video}_{index:06d}")
     reviewed = tmp_path / "m1_backgrounds.json"
     reviewed.write_text(json.dumps({"accepted": accepted, "reviewer": "R", "census_sha256": "x"}))
@@ -130,8 +133,11 @@ def test_build_splits_renders_and_writes_fixed_val_pairs(synth):
     out, index = synth
     assert index["counts"] == {
         "backgrounds_train": 4, "backgrounds_val": 4, "renders_train": 18, "renders_val": 2,
-        "val_pairs": 6,
+        "val_pairs": 6, "backgrounds_resized": 1,
     }  # fmt: skip
+    assert index["backgrounds_resized_from"] == {"VID08_000003": [2 * W, 2 * H]}
+    with Image.open(out / "backgrounds" / "val" / "VID08_000003.png") as frame:
+        assert frame.size == (W, H)
     assert not set(index["renders"]["train"]) & set(index["renders"]["val"])
     assert all(p["render"] in index["renders"]["val"] for p in index["pairs"])
     assert all(p["background"].startswith("VID08") for p in index["pairs"])
