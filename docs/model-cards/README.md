@@ -16,3 +16,4 @@ Mandatory sections:
 
 Cards:
 - [M5 surgical desmoking baselines](m5-desmoke.md): residual U-Net, Pix2Pix, SRGAN. Not released (INCOMPLETE under R-25).
+- [M1 instrument segmentation, synthetic against real labels](m1-synthetic.md): DeepLabV3-ResNet50, RFC 0001 arms A, B and C. Not released; H1 rejected.

@@ -2,7 +2,7 @@
 
 - **Author(s):** project owner (idea, scope); drafted with Claude Code
 - **Date:** 2026-10-22
-- **Status:** Draft
+- **Status:** Implemented. H1 rejected on 2026-10-26 (see Results).
 - **Related Issues:** #36
 
 **RESEARCH USE ONLY — NOT FOR CLINICAL USE**
@@ -232,6 +232,38 @@ split.
 4. Arms C, 3 seeds each.
 5. Model card (`docs/model-cards/`) and the experiment page on the website, including a
    negative result if that is the outcome.
+
+## Results (2026-10-26)
+
+The full record is in the model card `docs/model-cards/m1-synthetic.md`. The runs are in MLflow
+under `osv-m1-synthetic`.
+
+- **H1 is rejected.** On the seven test videos (2 960 frames) arm A reaches a binary IoU of
+  0.116 and arm B 0.772: Δ = −65.5 points, 95 % interval [−75.9, −53.5]. That interval lies
+  entirely below −δ = −2.0. This is the decision of section 3. It is final and is not revisited
+  by later runs.
+- **Arms C** reach arm B already at 10 % of the real-train frames (C10 0.775, C25 0.767,
+  C50 0.778, C100 0.764), and the curve is flat from there. Section 2 had no arm trained on a
+  fraction of the real frames from ImageNet alone. So these results do not show how much of
+  this the synthetic pre-training contributes: ImageNet plus about 400 real frames may be
+  enough on their own.
+- **Test discipline.** The test was touched 18 times, once per selected checkpoint, and every
+  touch is in the ledger.
+  - Before the first touch, the open question of section 1 (instruments with no class of
+    their own) was settled by the owner's review: nothing was excluded.
+  - Six arm C runs fine-tuned unfinished arm A checkpoints after arm A crashed on truncated
+    smoke layers. They were never tested and are tagged `osv.m1.invalid` (model card,
+    section 7).
+- **Not explained yet.** Arm A reaches 0.96 on synthetic val, about 0.45 on real val and 0.12
+  on the test. Background memorisation of the real-val videos does not account for this:
+  only 29 of the 717 backgrounds come from them. The candidates that remain are the look of
+  the rendered instruments, the small number of backgrounds, and poses the renderer does not
+  produce.
+- **Next experiments,** each in its own RFC:
+  - a control arm on 10 % and 25 % of the real frames from ImageNet alone, to tell what the
+    synthetic pre-training adds;
+  - domain randomisation (Drawbacks & Alternatives), the cheapest test of whether the gap is
+    one of appearance.
 
 ## Clinical & Safety Considerations
 
