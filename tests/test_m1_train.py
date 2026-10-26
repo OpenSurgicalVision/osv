@@ -250,6 +250,32 @@ def test_review_sheets_show_every_test_clip_and_names_must_exist(data, tmp_path)
         E.apply_review(images, {"excluded_clips": ["video09_99999"]})
 
 
+def test_examples_draw_real_val_frames_only_with_runs_and_licence(data, trained, tmp_path):
+    out = tmp_path / "m1_examples.png"
+    record = E.examples(
+        [trained["best"]["A"], trained["best"]["B"]],
+        out=out,
+        processed_dir=str(data["processed"]),
+        source=str(data["archive"]),
+        count=2,
+        scale=1.0,
+    )
+    val = T.real_split(data["processed"])["val"]
+    assert record["val_videos"] == val and {f["video"] for f in record["frames"]} <= set(val)
+    assert "video09" not in json.dumps(record)  # the test video never appears
+    assert [f["frame"] for f in record["frames"]] == [
+        f"{val[0]}_00000/frame_0",
+        f"{val[0]}_00000/frame_2",
+    ]
+    assert [c["arm"] for c in record["checkpoints"]] == ["A", "B"]
+    assert "CC BY-NC-SA 4.0" in record["licence"]
+    with Image.open(out) as figure:
+        assert figure.size[0] == 4 * W  # image | reference | A | B
+    assert json.loads(out.with_suffix(".json").read_text()) == json.loads(json.dumps(record))
+    with pytest.raises(SystemExit, match="not a selected checkpoint"):
+        E.examples([trained["best"]["A"].parent / "last.pt"], out=out, source=str(data["archive"]))
+
+
 def test_boundary_f1_tolerates_three_pixels():
     target = np.zeros((40, 40), bool)
     target[10:30, 10:30] = True

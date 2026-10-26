@@ -2,7 +2,7 @@
 
 RESEARCH USE ONLY - NOT FOR CLINICAL USE.
 
-Three commands, all run by a person:
+Four commands, all run by a person:
 
 * ``review`` (before any test touch) draws the test masks for a person to check what
   RFC 0001 leaves open: how instruments that have no class of their own (clipper,
@@ -25,6 +25,13 @@ Three commands, all run by a person:
   the RFC before any run and is a constant here, not a flag. Arms C are reported as a
   curve next to B; H1 is decided on A against B alone.
 
+* ``examples`` draws, for publication, what selected checkpoints predict on **real val**
+  frames, never on test frames: each row is image | reference | one column per checkpoint,
+  with the frame's binary IoU in each column. The frames are evenly spaced over the val
+  videos, a rule fixed before any prediction is seen, so neither good nor bad frames can be
+  picked. The figure carries the run names and the CC BY-NC-SA 4.0 line it inherits from
+  CholecSeg8k; a person approves it before it is published.
+
 Metrics per video (summed over frames, so dataset-level numbers are exact sums):
 binary instrument IoU, the 3x3 confusion matrix (per-class IoU and Dice for grasper and
 L-hook), and boundary F1 of the binary mask with a 3-pixel tolerance.
@@ -32,6 +39,8 @@ L-hook), and boundary F1 of the binary mask with a 3-pixel tolerance.
     python -m osv.eval.m1 review --out ~/osv-runs/m1_test_review
     python -m osv.eval.m1 test --checkpoint runs/m1/<run>/best.pt --ledger runs/m1/test_touches.jsonl
     python -m osv.eval.m1 decide runs/m1/test/*.json
+    python -m osv.eval.m1 examples runs/m1/m1-A-s1-*/best.pt runs/m1/m1-B-s1-*/best.pt \\
+        runs/m1/m1-C10-s1-*/best.pt --out ~/osv-runs/m1_examples.png
 """
 
 from __future__ import annotations
@@ -39,6 +48,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -60,6 +70,11 @@ MIN_SEEDS = 3
 BOUNDARY_TOLERANCE_PX = 3
 REVIEW_PATH = Path(__file__).resolve().parents[1] / "datasets" / "manifests" / "m1_test_review.yaml"
 IGNORED_COLOUR = (255, 0, 255)
+EXAMPLE_COUNT = 6
+EXAMPLE_LICENCE = (
+    "Frames and reference masks: CholecSeg8k (Hong et al. 2020), from Cholec80 "
+    "(Twinanda et al. 2017). CC BY-NC-SA 4.0."
+)
 
 
 def clip_of(file_name: str) -> str:
@@ -125,6 +140,118 @@ def review(processed_dir: str, source: str | None, out: Path, scale: float = 0.5
     )
     print(f"[osv.eval.m1] {len(listing)} clips of {len(videos)} test videos -> {out}")
     return sheets
+
+
+def example_frames(frames: int, count: int) -> list[int]:
+    """Evenly spaced indices, fixed before any prediction is seen."""
+    return sorted({int((i + 0.5) * frames / count) for i in range(min(count, frames))})
+
+
+def _caption(tile: np.ndarray, text: str) -> np.ndarray:
+    tile = tile.copy()
+    (width, height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    cv2.rectangle(tile, (0, 0), (width + 12, height + 12), (0, 0, 0), -1)
+    cv2.putText(tile, text, (6, height + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    return tile
+
+
+def _text_strip(lines: list[str], width: int) -> np.ndarray:
+    strip = np.zeros((10 + 22 * len(lines), width, 3), np.uint8)
+    for n, line in enumerate(lines):
+        cv2.putText(
+            strip, line, (8, 24 + 22 * n), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1
+        )
+    return strip
+
+
+def examples(
+    checkpoints: list[Path],
+    *,
+    out: Path,
+    processed_dir: str | None = None,
+    source: str | None = None,
+    count: int = EXAMPLE_COUNT,
+    scale: float = 0.5,
+    device: str = "cpu",
+) -> dict[str, Any]:
+    """A figure of what selected checkpoints predict on real val frames, and its record."""
+    import torch
+
+    from osv.train import m1 as T
+
+    models: list[dict[str, Any]] = []
+    for path in checkpoints:
+        state = torch.load(path, map_location="cpu", weights_only=False)
+        if not state.get("selected_on"):
+            raise SystemExit(f"[osv.eval.m1] {path} is not a selected checkpoint (best.pt)")
+        model = T.build_model(architecture=state["config"]["architecture"], backbone_weights=None)
+        model.load_state_dict(state["model"])
+        models.append(
+            {
+                "arm": arm_label(state["config"]),
+                "run": Path(path).parent.name,
+                "sha256": T.sha256_file(path),
+                "model": model.to(device).eval(),
+            }
+        )
+        processed_dir = processed_dir or state["config"]["processed_dir"]
+    # The checkpoint's source is a path on the pod; locally the archive is somewhere else.
+    source = source or os.environ.get("CHOLECSEG8K_RAW_ZIP")
+    assert processed_dir is not None
+    split = T.real_split(processed_dir)
+    data = D.RealInstruments(split["val"], processed_dir=processed_dir, source=source)
+    rows, frames = [], []
+    with torch.no_grad():
+        for index in example_frames(len(data), count):
+            rgb, label = data.raw_pair(index)
+            image = data[index]["image"][None].to(device)
+            name = frame_key(data.images[index]["file_name"])
+            small = (int(rgb.shape[1] * scale), int(rgb.shape[0] * scale))
+
+            def tile(picture: np.ndarray, text: str, small=small) -> np.ndarray:
+                # Caption after resizing, so the text keeps its size whatever the scale.
+                return _caption(cv2.resize(picture, small, interpolation=cv2.INTER_AREA), text)
+
+            tiles = [tile(rgb, name), tile(overlay(rgb, label), "reference")]
+            scores = {}
+            for entry in models:
+                pred = entry["model"](image)["out"].argmax(1)[0].cpu().numpy().astype(np.uint8)
+                score = iou(binary_counts(M.confusion_matrix(pred, label, len(D.CLASSES))))
+                scores[entry["arm"]] = score
+                shown = "n/a" if np.isnan(score) else f"{score:.2f}"
+                tiles.append(tile(overlay(rgb, pred), f"{entry['arm']}  IoU {shown}"))
+            rows.append(np.concatenate(tiles, axis=1))
+            frames.append(
+                {"frame": name, "video": data.images[index]["video_id"], "binary_iou": scores}
+            )
+    width = rows[0].shape[1]
+    columns = "columns: image | reference | " + " | ".join(m["arm"] for m in models)
+    colours = (
+        "grasper cyan, L-hook yellow, ignored magenta; IoU of the instrument mask on this frame"
+    )
+    footer = [
+        *(f"{m['arm']} = {m['run']}" for m in models),
+        f"real validation frames ({', '.join(split['val'])}), never the test videos",
+        EXAMPLE_LICENCE,
+        "RESEARCH USE ONLY - NOT FOR CLINICAL USE",
+    ]
+    figure = np.concatenate(
+        [_text_strip([columns, colours], width), *rows, _text_strip(footer, width)]
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(figure).save(out)
+    record = {
+        "disclaimer": DISCLAIMER,
+        "licence": EXAMPLE_LICENCE,
+        "split": "real val",
+        "val_videos": split["val"],
+        "rule": f"{count} frames evenly spaced over the sorted val frames",
+        "checkpoints": [{k: m[k] for k in ("arm", "run", "sha256")} for m in models],
+        "frames": frames,
+    }
+    out.with_suffix(".json").write_text(json.dumps(record, indent=2) + "\n")
+    print(f"[osv.eval.m1] {len(frames)} val frames x {len(models)} checkpoints -> {out}")
+    return record
 
 
 def load_review(path: Path = REVIEW_PATH) -> dict[str, Any]:
@@ -417,6 +544,14 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--processed-dir", default="data/processed/cholecseg8k")
     r.add_argument("--source", help="CholecSeg8k zip (default CHOLECSEG8K_RAW_ZIP)")
     r.add_argument("--scale", type=float, default=0.5)
+    e = commands.add_parser("examples", help="a figure of predictions on real val frames")
+    e.add_argument("checkpoints", type=Path, nargs="+", help="selected best.pt files")
+    e.add_argument("--out", type=Path, required=True, help="a .png outside the repository")
+    e.add_argument("--processed-dir", help="default: the first checkpoint's")
+    e.add_argument("--source", help="CholecSeg8k zip (default CHOLECSEG8K_RAW_ZIP)")
+    e.add_argument("--count", type=int, default=EXAMPLE_COUNT)
+    e.add_argument("--scale", type=float, default=0.5)
+    e.add_argument("--device", default="cpu")
     d = commands.add_parser("decide", help="the RFC 0001 decision rule over test reports")
     d.add_argument("reports", type=Path, nargs="+")
     d.add_argument("--reps", type=int, default=10_000)
@@ -438,6 +573,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "review":
         review(args.processed_dir, args.source, args.out, scale=args.scale)
         return 0
+    if args.command == "examples":
+        examples(
+            args.checkpoints,
+            out=args.out,
+            processed_dir=args.processed_dir,
+            source=args.source,
+            count=args.count,
+            scale=args.scale,
+            device=args.device,
+        )
+        return 0
     result = decide([json.loads(p.read_text()) for p in args.reports], reps=args.reps)
     text = json.dumps(result, indent=2) + "\n"
     if args.out:
@@ -455,6 +601,7 @@ __all__ = [
     "apply_review",
     "boundary_counts",
     "decide",
+    "examples",
     "load_review",
     "review",
     "test",
