@@ -187,15 +187,22 @@ class CholecSeg8kSegmentation(Dataset):
             "file_name": record["file_name"],
         }
 
-    def class_pixel_counts(self, sample: int | None = None) -> np.ndarray:
+    def class_pixel_counts(self, sample: int | None = None, *, spread: bool = False) -> np.ndarray:
         """Ground-truth pixel count per class over this split.
 
-        `sample` bounds the scan to the first N frames; the full pass reads
-        every mask in the split and is slow enough to be worth caching.
+        `sample` bounds the scan to N frames; the full pass reads every mask in
+        the split and is slow enough to be worth caching. By default these are
+        the first N, which in a split ordered by video are one or two videos
+        only; `spread` takes N frames evenly spaced over the whole split.
         """
         counts = np.zeros(self.num_classes, dtype=np.int64)
         n = len(self) if sample is None else min(sample, len(self))
-        for i in range(n):
+        picks = (
+            np.unique(np.linspace(0, len(self) - 1, n).round().astype(int))
+            if spread and n < len(self)
+            else range(n)
+        )
+        for i in picks:
             _, label = self.raw_pair(i)
             valid = label[label != IGNORE_INDEX]
             counts += np.bincount(valid, minlength=self.num_classes)[: self.num_classes]
@@ -206,6 +213,7 @@ def inverse_frequency_weights(
     counts: np.ndarray,
     *,
     clip: float = 50.0,
+    power: float = 1.0,
 ) -> torch.Tensor:
     """Class weights ~ 1/frequency, normalised to mean 1 and clipped.
 
@@ -215,11 +223,16 @@ def inverse_frequency_weights(
 
     A class with zero pixels gets weight 0: it cannot be learned from this
     split, and giving it a large weight would only amplify noise.
+
+    `power` below 1 softens the balance: 0.5 weighs by 1/sqrt(frequency). With
+    power 1 and clip 50 a class rare in the counts can outweigh a common one by
+    hundreds of times (339x blood over liver on one synthetic split), enough for
+    it to swallow every pixel that resembles it.
     """
     counts = np.asarray(counts, dtype=np.float64)
     weights = np.zeros_like(counts)
     present = counts > 0
-    weights[present] = counts[present].sum() / counts[present]
+    weights[present] = (counts[present].sum() / counts[present]) ** power
     if present.any():
         weights[present] /= weights[present].mean()
         weights[present] = np.clip(weights[present], 1.0 / clip, clip)
