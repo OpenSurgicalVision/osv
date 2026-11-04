@@ -51,6 +51,17 @@ from osv.datasets.segmentation import (
 from osv.eval import metrics as M
 
 DISCLAIMER = "RESEARCH USE ONLY - NOT FOR CLINICAL USE"
+SIM2REAL_OPTIONS = frozenset(
+    {
+        "class_weight_power",
+        "class_counts_spread",
+        "augment",
+        "freeze_stem",
+        "frozen_bn",
+        "backbone_lr_scale",
+        "keep_best",
+    }
+)
 QUOTA_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "check_compute_quota.py"
 
 
@@ -70,6 +81,16 @@ class TrainConfig:
     amp: bool = True
     num_workers: int = 0
     experiment: str = "osv-cholecseg8k-baseline"
+    # Sim-to-real options (all off by default: earlier runs keep their identity). Added
+    # after the OSV AI Engine's loop iteration 3, where models trained on synthetic frames
+    # learned renderer texture and a 339x class weight let blood swallow the liver.
+    class_weight_power: float = 1.0  # 0.5: weights ~ 1/sqrt(frequency)
+    class_counts_spread: bool = False  # count classes over frames spread over the split
+    augment: bool = False  # osv.augment.segmentation_train_transform on training frames
+    freeze_stem: bool = False  # backbone conv1, bn1, layer1, layer2 not trained
+    frozen_bn: bool = False  # backbone BatchNorm keeps its ImageNet statistics
+    backbone_lr_scale: float = 1.0  # backbone learning rate = lr x this
+    keep_best: bool = False  # also save the best epoch on the eval split as best_<hash>.pt
     extra: dict[str, Any] = field(default_factory=dict)
 
     def hash(self) -> str:
@@ -79,7 +100,15 @@ class TrainConfig:
         longer is a resumption, whereas changing the learning rate or the
         architecture is a different experiment wearing the same name.
         """
-        payload = {k: v for k, v in asdict(self).items() if k not in {"epochs", "extra"}}
+        defaults = TrainConfig.__dataclass_fields__
+        payload = {
+            k: v
+            for k, v in asdict(self).items()
+            if k not in {"epochs", "extra"}
+            # Options added later count only when set: a configuration that leaves them
+            # at their defaults keeps the identity (and checkpoints) it had before.
+            and not (k in SIM2REAL_OPTIONS and v == defaults[k].default)
+        }
         blob = json.dumps(payload, sort_keys=True, default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
@@ -244,6 +273,24 @@ def evaluate(model, loader, device, num_classes, class_names) -> dict[str, Any]:
     return M.summarize(cm, class_names)
 
 
+def param_groups(model: nn.Module, lr: float, backbone_lr_scale: float) -> list[dict[str, Any]]:
+    """Trainable parameters, the backbone's at ``lr * backbone_lr_scale``."""
+    backbone = [p for p in model.backbone.parameters() if p.requires_grad]
+    ids = {id(p) for p in model.backbone.parameters()}
+    head = [p for p in model.parameters() if p.requires_grad and id(p) not in ids]
+    return [
+        {"params": backbone, "lr": lr * backbone_lr_scale},
+        {"params": head, "lr": lr},
+    ]
+
+
+def freeze_backbone_bn(model: nn.Module) -> None:
+    """Backbone BatchNorm layers in eval mode: running statistics stay ImageNet's."""
+    for m in model.backbone.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            m.eval()
+
+
 def save_checkpoint(path: Path, *, model, optimizer, epoch: int, config: TrainConfig) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -286,7 +333,12 @@ def train(
     preflight_quota(device=device, skip=skip_quota, experiment=config.experiment)
     pin_seed(config.seed)
 
-    train_ds = CholecSeg8kSegmentation("train", limit=config.train_limit)
+    transform = None
+    if config.augment:
+        from osv.augment import segmentation_train_transform
+
+        transform = segmentation_train_transform()
+    train_ds = CholecSeg8kSegmentation("train", limit=config.train_limit, transform=transform)
     eval_ds = CholecSeg8kSegmentation(config.eval_split, limit=config.eval_limit)
     print(
         f"[osv.train] train {len(train_ds)} frames / {len(train_ds.videos)} videos; "
@@ -309,8 +361,16 @@ def train(
         eval_ds, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers,
     )
 
-    counts = train_ds.class_pixel_counts(sample=config.train_limit or 200)
-    weights = inverse_frequency_weights(counts, clip=config.class_weight_clip).to(device)
+    counts = train_ds.class_pixel_counts(
+        sample=config.train_limit or 200, spread=config.class_counts_spread
+    )
+    weights = inverse_frequency_weights(
+        counts, clip=config.class_weight_clip, power=config.class_weight_power
+    ).to(device)
+    print(
+        "[osv.train] class weights: "
+        + ", ".join(f"{n} {w:.3f}" for n, w in zip(train_ds.class_names, weights.tolist(), strict=True))
+    )
     absent = [train_ds.class_names[i] for i, c in enumerate(counts) if c == 0]
     if absent:
         print(f"[osv.train] absent from the training split, weight 0: {absent}")
@@ -318,7 +378,15 @@ def train(
     model = build_model(train_ds.num_classes, architecture=config.architecture,
                         pretrained=config.pretrained).to(device)
     criterion = nn.CrossEntropyLoss(weight=weights, ignore_index=M.IGNORE_INDEX)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+    if config.freeze_stem:
+        for name in ("conv1", "bn1", "layer1", "layer2"):
+            for p in getattr(model.backbone, name).parameters():
+                p.requires_grad_(False)
+    optimizer = torch.optim.AdamW(
+        param_groups(model, config.lr, config.backbone_lr_scale),
+        lr=config.lr,
+        weight_decay=config.weight_decay,
+    )
     scaler = torch.amp.GradScaler(device, enabled=config.amp and device == "cuda")
 
     ckpt_path = out_dir / f"ckpt_{config.hash()}.pt"
@@ -376,8 +444,11 @@ def _run_epochs(
     train_loader, eval_loader, train_ds, start_epoch, ckpt_path, history, recorder,
 ) -> dict[str, Any]:
     report: dict[str, Any] = {}
+    best_iou = -1.0
     for epoch in range(start_epoch, config.epochs):
         model.train()
+        if config.frozen_bn:
+            freeze_backbone_bn(model)
         running, seen, t0 = 0.0, 0, time.time()
         for batch in train_loader:
             images = batch["image"].to(device, non_blocking=True)
@@ -409,6 +480,11 @@ def _run_epochs(
             f"({report['classes_skipped_absent']} N/A) | {entry['seconds']}s"
         )
         save_checkpoint(ckpt_path, model=model, optimizer=optimizer, epoch=epoch, config=config)
+        if config.keep_best and report["macro_iou"] > best_iou:
+            best_iou = report["macro_iou"]
+            best = ckpt_path.with_name(ckpt_path.name.replace("ckpt_", "best_"))
+            save_checkpoint(best, model=model, optimizer=optimizer, epoch=epoch, config=config)
+            print(f"[osv.train] best so far: epoch {epoch} -> {best.name}")
         recorder.log_metrics(
             {
                 "train_loss": train_loss,
@@ -447,6 +523,18 @@ def main(argv: list[str] | None = None) -> int:
         help="CPU runs only: an unrecorded GPU run makes the next quota check under-count.",
     )
     p.add_argument("--experiment", default=TrainConfig.experiment)
+    sim = p.add_argument_group("sim-to-real options (off by default)")
+    sim.add_argument("--class-weight-clip", type=float, default=TrainConfig.class_weight_clip)
+    sim.add_argument("--class-weight-power", type=float, default=TrainConfig.class_weight_power,
+                     help="0.5 weighs classes by 1/sqrt(frequency)")
+    sim.add_argument("--class-counts-spread", action="store_true",
+                     help="count classes over frames spread over the split, not the first ones")
+    sim.add_argument("--augment", action="store_true", help="L1 augmentation of training frames")
+    sim.add_argument("--freeze-stem", action="store_true", help="do not train conv1..layer2")
+    sim.add_argument("--frozen-bn", action="store_true", help="keep backbone BatchNorm statistics")
+    sim.add_argument("--backbone-lr-scale", type=float, default=TrainConfig.backbone_lr_scale)
+    sim.add_argument("--keep-best", action="store_true",
+                     help="also save the best eval-split epoch as best_<hash>.pt")
     args = p.parse_args(argv)
 
     if args.eval_split == "test":
@@ -462,6 +550,10 @@ def main(argv: list[str] | None = None) -> int:
         train_limit=args.train_limit, eval_limit=args.eval_limit,
         eval_split=args.eval_split, num_workers=args.num_workers,
         experiment=args.experiment,
+        class_weight_clip=args.class_weight_clip, class_weight_power=args.class_weight_power,
+        class_counts_spread=args.class_counts_spread, augment=args.augment,
+        freeze_stem=args.freeze_stem, frozen_bn=args.frozen_bn,
+        backbone_lr_scale=args.backbone_lr_scale, keep_best=args.keep_best,
     )
     train(config, device=args.device, out_dir=Path(args.out),
           resume=args.resume, skip_quota=args.skip_quota_check,

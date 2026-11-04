@@ -172,3 +172,79 @@ def test_pretrained_requests_both_sets_of_weights(monkeypatch):
     seen = _captured_kwargs(monkeypatch, pretrained=True)
     assert seen["weights"] == "DEFAULT"
     assert seen["weights_backbone"] == "DEFAULT"
+
+
+# --- sim-to-real options ----------------------------------------------------
+
+
+def test_sim2real_options_left_at_defaults_keep_the_identity():
+    # Hashes of runs made before the options existed (pinned): their checkpoints resume.
+    assert S.TrainConfig().hash() == "b57e7563b4986e0c"
+    assert S.TrainConfig(batch_size=8, seed=1338, experiment="x").hash() == "f73268cd370f7a7d"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("class_weight_power", 0.5),
+        ("class_counts_spread", True),
+        ("augment", True),
+        ("freeze_stem", True),
+        ("frozen_bn", True),
+        ("backbone_lr_scale", 0.1),
+        ("keep_best", True),
+    ],
+)
+def test_each_sim2real_option_is_a_different_experiment(field, value):
+    base = S.TrainConfig()
+    assert replace(base, **{field: value}).hash() != base.hash()
+
+
+def test_weight_power_softens_the_balance():
+    import numpy as np
+
+    from osv.datasets.segmentation import inverse_frequency_weights
+
+    counts = np.array([1000, 0, 1])  # a common class, an absent one, a rare one
+    hard = inverse_frequency_weights(counts, clip=1e9).numpy()
+    soft = inverse_frequency_weights(counts, clip=1e9, power=0.5).numpy()
+    assert hard[1] == soft[1] == 0
+    assert hard[2] / hard[0] == pytest.approx(1000)
+    assert soft[2] / soft[0] == pytest.approx(1000**0.5)
+
+
+def test_backbone_learning_rate_and_frozen_parts():
+    model = S.build_model(4, architecture="deeplabv3_resnet50", pretrained=False)
+    for name in ("conv1", "bn1", "layer1", "layer2"):
+        for p in getattr(model.backbone, name).parameters():
+            p.requires_grad_(False)
+    backbone, head = S.param_groups(model, 1e-4, 0.1)
+    assert backbone["lr"] == pytest.approx(1e-5) and head["lr"] == pytest.approx(1e-4)
+    trainable = {id(p) for g in (backbone, head) for p in g["params"]}
+    assert not any(id(p) in trainable for p in model.backbone.layer1.parameters())
+    assert any(id(p) in trainable for p in model.backbone.layer4.parameters())
+    model.train()
+    S.freeze_backbone_bn(model)
+    assert not model.backbone.bn1.training and model.classifier.training
+
+
+def test_augmentation_moves_labels_with_the_image_and_ignores_uncovered_pixels():
+    import random
+
+    import numpy as np
+
+    from osv.augment import IGNORE_LABEL, segmentation_train_transform
+
+    random.seed(0)
+    np.random.seed(0)
+    rgb = np.zeros((96, 160, 3), np.uint8)
+    rgb[:, :80] = (200, 40, 40)  # left half red ...
+    label = np.zeros((96, 160), np.uint8)
+    label[:, :80] = 2  # ... and labelled 2
+    t = segmentation_train_transform()
+    for _ in range(20):
+        out_rgb, out_label = t(rgb, label)
+        assert out_rgb.shape == rgb.shape and out_label.shape == label.shape
+        assert set(np.unique(out_label)) <= {0, 2, IGNORE_LABEL}
+        red = out_rgb[..., 0].astype(int) - out_rgb[..., 2].astype(int) > 60
+        assert (out_label[red] == 2).mean() > 0.9  # red pixels keep their label
